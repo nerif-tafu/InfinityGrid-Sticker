@@ -13,25 +13,12 @@
 </head>
 
 <body>
-    <header class="header">
-        <h1>InfinityGrid Sticker Designer</h1>
-        <div class="header-actions">
-            <span id="iconCount" class="icon-count"></span>
-            <button class="btn btn-secondary btn-sm" onclick="refreshIcons()">
-                ↻ Refresh
-            </button>
-            <button class="btn btn-primary btn-sm" onclick="openEditor()">
-                + New Tag
-            </button>
-        </div>
-    </header>
-
     <main class="dashboard" id="dashboard">
         <!-- Tags will be rendered here -->
     </main>
 
     <!-- Editor Modal -->
-    <div class="modal-overlay" id="editorModal">
+    <div class="modal-overlay" id="editorModal" onclick="if (event.target === this) closeEditor()">
         <div class="modal">
             <div class="modal-header">
                 <h3 id="modalTitle">Create New Tag</h3>

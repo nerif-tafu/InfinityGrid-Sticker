@@ -26,15 +26,17 @@ const LABEL_SHAPES = {
     cullenect: { label: 'Cullenect' }
 };
 
-// Icon file list - naming convention: category_subcategory_name.svg
-// Example: electrical_connector_jst.svg -> Electrical > Connector > jst
-// Files are stored flat in the Icons_SVG folder, loaded from backend API
+// Icon file list loaded from backend API.
+// Category metadata is supplied by icon_tags.json (mainCategory/subCategory).
+// Legacy category_subcategory_name.svg parsing is still supported as fallback.
 let ICONS_FILES = [];
 let ICONS_CACHE_TOKEN = String(Date.now());
+let ICONS_TAGS_BY_FILE = {};
+let ICONS_TAGS_TOKEN = '';
 const MAX_ICON_PICKER_TOKENS = 5;
 
 // Build hierarchical structure from flat file list
-// Supports both 2-part (category_name) and 3-part (category_subcategory_name) naming
+// Metadata comes from icon_tags.json when available.
 function buildIconTree(files) {
     return buildIconTreeFromCatalog(buildIconCatalog(files));
 
@@ -104,21 +106,33 @@ function formatDisplayName(name) {
         .replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function parseIconFile(filename) {
+function parseIconFile(filename, tagsByFile = ICONS_TAGS_BY_FILE) {
     const baseName = filename.replace(/\.svg$/i, '');
     const parts = baseName.split('_').filter(Boolean);
-
-    if (parts.length < 2) return null;
-
-    const normalizedParts = parts.map(part => part.toLowerCase());
-    const categoryToken = normalizedParts[0];
-    const isTwoPartName = normalizedParts.length === 2;
-    const subcategoryToken = isTwoPartName ? 'general' : normalizedParts[1];
-    const rawNameSegments = isTwoPartName ? [normalizedParts[1]] : normalizedParts.slice(2);
+    const metadata = tagsByFile && tagsByFile[filename] ? tagsByFile[filename] : null;
+    const normalizedName = baseName.toLowerCase();
+    const rawNameSegments = normalizedName.split(/[-_]+/).filter(Boolean);
     const nameTokens = rawNameSegments.flatMap(segment =>
         segment.split('-').filter(Boolean)
     );
-    const name = nameTokens.join('-');
+    const name = normalizedName;
+    let categoryToken = metadata && metadata.mainCategory
+        ? String(metadata.mainCategory).toLowerCase()
+        : '';
+    let subcategoryToken = metadata && metadata.subCategory
+        ? String(metadata.subCategory).toLowerCase()
+        : '';
+
+    if (!categoryToken || !subcategoryToken) {
+        if (parts.length < 2) {
+            if (!categoryToken) categoryToken = 'uncategorized';
+            if (!subcategoryToken) subcategoryToken = 'general';
+        } else {
+            const normalizedParts = parts.map(part => part.toLowerCase());
+            if (!categoryToken) categoryToken = normalizedParts[0];
+            if (!subcategoryToken) subcategoryToken = normalizedParts.length === 2 ? 'general' : normalizedParts[1];
+        }
+    }
 
     return {
         filename,
@@ -142,7 +156,7 @@ function parseIconFile(filename) {
 
 function buildIconCatalog(files) {
     return files
-        .map(parseIconFile)
+        .map(file => parseIconFile(file, ICONS_TAGS_BY_FILE))
         .filter(Boolean)
         .sort((a, b) =>
             a.categoryLabel.localeCompare(b.categoryLabel) ||
@@ -216,6 +230,19 @@ let _singleExportBusy = false;
 let _batchExportBusy = false;
 let _batchExportStatus = { message: '', tone: 'info' };
 let _batchExportFormatSelection = '3mf';
+let _selectedTagIds = new Set();
+
+function closeBulkActionsMenu() {
+    const details = document.getElementById('bulkActionsDetails');
+    if (details) details.removeAttribute('open');
+}
+
+function handleBulkActionsSummaryClick(event, disabled) {
+    if (!disabled) return true;
+    event.preventDefault();
+    event.stopPropagation();
+    return false;
+}
 
 // ============================================
 // LOCAL STORAGE
@@ -291,9 +318,25 @@ async function fetchIconsFromBackend({ onlyIfChanged = false, preservePickerStat
         const data = await response.json();
         const nextVersion = data && data.version ? String(data.version) : String(Date.now());
         const nextFiles = (data.files || []).filter(f =>
-            f.toLowerCase().endsWith('.svg') && f.includes('_')
+            f.toLowerCase().endsWith('.svg')
         );
+        const nextTagsArray = Array.isArray(data.tags) ? data.tags : [];
+        const nextTagsMap = {};
+        nextTagsArray.forEach(entry => {
+            const fileName = String(entry && entry.fileName ? entry.fileName : '').trim();
+            if (!fileName) return;
+            nextTagsMap[fileName] = {
+                mainCategory: String(entry.mainCategory || 'uncategorized').toLowerCase(),
+                subCategory: String(entry.subCategory || 'general').toLowerCase()
+            };
+        });
+        const nextTagsToken = JSON.stringify(Object.keys(nextTagsMap).sort().map(fileName => ({
+            fileName,
+            mainCategory: nextTagsMap[fileName].mainCategory,
+            subCategory: nextTagsMap[fileName].subCategory
+        })));
         const hasChanged = nextVersion !== ICONS_CACHE_TOKEN ||
+            nextTagsToken !== ICONS_TAGS_TOKEN ||
             nextFiles.length !== ICONS_FILES.length ||
             nextFiles.some((file, index) => file !== ICONS_FILES[index]);
 
@@ -303,6 +346,8 @@ async function fetchIconsFromBackend({ onlyIfChanged = false, preservePickerStat
 
         ICONS_CACHE_TOKEN = nextVersion;
         ICONS_FILES = nextFiles;
+        ICONS_TAGS_BY_FILE = nextTagsMap;
+        ICONS_TAGS_TOKEN = nextTagsToken;
 
         // Rebuild icon tree
         rebuildIconTree({ preservePickerState });
@@ -332,36 +377,20 @@ async function fetchIconsFromBackend({ onlyIfChanged = false, preservePickerStat
     }
 }
 
-// Refresh icons from backend
-async function refreshIcons() {
-    const result = await fetchIconsFromBackend({ preservePickerState: true });
-    if (result.success) {
-        console.log(`Loaded ${ICONS_FILES.length} icons`);
-    } else {
-        alert('Failed to load icons.\n\nMake sure the server is running:\npython server.py');
-    }
-}
-
 // Rebuild ICONS_DATA from ICONS_FILES
 function rebuildIconTree({ preservePickerState = false } = {}) {
+    clearSvgTextCache();
     const pickerStateSnapshot = preservePickerState ? cloneIconPickerState() : null;
     ICONS_CATALOG = buildIconCatalog(ICONS_FILES);
     ICONS_BY_FILENAME = buildIconIndex(ICONS_CATALOG);
     ICON_PICKER_STATE = pickerStateSnapshot || {};
+    if (normalizeTagIcons(state.tags)) {
+        saveToStorage();
+    }
     const tree = buildIconTreeFromCatalog(ICONS_CATALOG);
     // Update the global ICONS_DATA
     Object.keys(ICONS_DATA).forEach(key => delete ICONS_DATA[key]);
     Object.assign(ICONS_DATA, tree);
-    // Update icon count display
-    updateIconCount();
-}
-
-// Update icon count in header
-function updateIconCount() {
-    const countEl = document.getElementById('iconCount');
-    if (countEl) {
-        countEl.textContent = ICONS_FILES.length > 0 ? `${ICONS_FILES.length} icons` : '';
-    }
 }
 
 // ============================================
@@ -387,6 +416,20 @@ function escapeInlineJs(text) {
     return String(text || '')
         .replace(/\\/g, '\\\\')
         .replace(/'/g, "\\'");
+}
+
+function getActionIcon(name) {
+    const icons = {
+        preview: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.5 12s3.8-6.5 10.5-6.5S22.5 12 22.5 12s-3.8 6.5-10.5 6.5S1.5 12 1.5 12Zm10.5 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/></svg>',
+        edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 17.25 9.85-9.85 3.75 3.75L6.75 21H3v-3.75Zm11.72-10.97 1.53-1.53a1.75 1.75 0 0 1 2.47 0l.53.53a1.75 1.75 0 0 1 0 2.47l-1.53 1.53-3-3Z"/></svg>',
+        duplicate: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v12H8V8Zm-3 8H4V4h11v2H6a1 1 0 0 0-1 1v9Z"/></svg>',
+        delete: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-1 6h2v9H8V9Zm6 0h2v9h-2V9ZM6 9h2v9H6V9Zm12 0h0v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9h12Z"/></svg>',
+        import: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l4 4h-3v7h-2V7H8l4-4Zm-7 9h2v6h10v-6h2v7a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-7Z"/></svg>',
+        export: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21l-4-4h3v-7h2v7h3l-4 4ZM5 5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v7h-2V6H7v6H5V5Z"/></svg>',
+        selectAll: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4V4Zm2 2v3h3V6H6Zm7-2h7v7h-7V4Zm2 2v3h3V6h-3ZM4 13h7v7H4v-7Zm2 2v3h3v-3H6Zm9.2 1.3L20.5 11l1.5 1.5-6.8 6.8L12 16l1.5-1.5 1.7 1.8Z"/></svg>',
+        clearSelect: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4V4Zm2 2v3h3V6H6Zm7-2h7v7h-7V4Zm2 2v3h3V6h-3ZM4 13h7v7H4v-7Zm2 2v3h3v-3H6Zm8.4 3L12 15.6l1.4-1.4 2.4 2.4 2.4-2.4 1.4 1.4-2.4 2.4 2.4 2.4-1.4 1.4-2.4-2.4-2.4 2.4-1.4-1.4 2.4-2.4Z"/></svg>'
+    };
+    return icons[name] || '';
 }
 
 function generateTagName() {
@@ -437,6 +480,68 @@ function getIconMetadata(filename) {
     return filename ? (ICONS_BY_FILENAME[filename] || null) : null;
 }
 
+function legacyIconFilenameToCurrent(filename) {
+    const raw = String(filename || '').trim();
+    if (!raw) return '';
+    const base = raw.replace(/\.svg$/i, '');
+    const parts = base.split('_').filter(Boolean);
+    if (parts.length >= 3) return `${parts.slice(2).join('_')}.svg`;
+    if (parts.length === 2) return `${parts[1]}.svg`;
+    return `${base}.svg`;
+}
+
+function resolveIconMetadata(icon) {
+    if (!icon) return null;
+    const directFilename = String(icon.filename || icon.svg || '').trim();
+    if (directFilename && ICONS_BY_FILENAME[directFilename]) {
+        return ICONS_BY_FILENAME[directFilename];
+    }
+
+    const mappedFilename = legacyIconFilenameToCurrent(directFilename);
+    if (mappedFilename && ICONS_BY_FILENAME[mappedFilename]) {
+        return ICONS_BY_FILENAME[mappedFilename];
+    }
+
+    const iconName = String(icon.name || '').trim().toLowerCase();
+    if (!iconName) return null;
+    const exactByName = ICONS_CATALOG.find(entry => entry.name === iconName);
+    if (exactByName) return exactByName;
+    return ICONS_CATALOG.find(entry => entry.displayName.toLowerCase() === iconName) || null;
+}
+
+function normalizeIconObject(icon) {
+    const resolved = resolveIconMetadata(icon);
+    if (!resolved) return icon;
+    return {
+        ...icon,
+        name: resolved.name,
+        filename: resolved.filename,
+        svg: resolved.svg
+    };
+}
+
+function normalizeTagIcons(tags) {
+    if (!Array.isArray(tags) || tags.length === 0) return false;
+    let changed = false;
+    tags.forEach(tag => {
+        if (!tag || !Array.isArray(tag.icons)) return;
+        tag.icons = tag.icons.map(icon => {
+            if (!icon) return icon;
+            const normalized = normalizeIconObject(icon);
+            if (
+                normalized !== icon ||
+                normalized.filename !== icon.filename ||
+                normalized.svg !== icon.svg ||
+                normalized.name !== icon.name
+            ) {
+                changed = true;
+            }
+            return normalized;
+        });
+    });
+    return changed;
+}
+
 function clearIconPickerState(zoneIndex = null) {
     if (typeof zoneIndex === 'number') {
         delete ICON_PICKER_STATE[zoneIndex];
@@ -446,12 +551,10 @@ function clearIconPickerState(zoneIndex = null) {
 }
 
 function buildDefaultIconPickerState(zoneIndex) {
-    const selectedFilename = state.icons[zoneIndex] && state.icons[zoneIndex].filename;
-    const selectedIcon = getIconMetadata(selectedFilename);
     return {
         query: '',
-        categoryToken: selectedIcon ? selectedIcon.categoryToken : '',
-        subcategoryToken: selectedIcon ? selectedIcon.subcategoryToken : '',
+        categoryToken: '',
+        subcategoryToken: '',
         activeTokens: []
     };
 }
@@ -622,17 +725,45 @@ function setSingleExportBusyState(isBusy, message = '') {
 
 function syncBatchExportControls() {
     const btn = document.getElementById('exportAllBtn');
+    const selectedBtn = document.getElementById('exportSelectedBtn');
+    const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+    const bulkActionsDetails = document.getElementById('bulkActionsDetails');
+    const bulkActionsSummary = bulkActionsDetails ? bulkActionsDetails.querySelector('.table-bulk-summary') : null;
     const select = document.getElementById('batchExportFormat');
     const hasTags = state.tags.length > 0;
+    const selectedCount = _selectedTagIds.size;
+    const hasSelection = selectedCount > 0;
 
     if (btn) {
         btn.disabled = _batchExportBusy || !hasTags;
         btn.textContent = _batchExportBusy ? 'Working...' : 'Export All';
         btn.classList.toggle('is-busy', _batchExportBusy);
     }
+    if (selectedBtn) {
+        selectedBtn.disabled = _batchExportBusy || !hasSelection;
+        selectedBtn.textContent = _batchExportBusy ? 'Working...' : `Export Selected (${selectedCount})`;
+        selectedBtn.classList.toggle('is-busy', _batchExportBusy);
+    }
+    if (deleteSelectedBtn) {
+        deleteSelectedBtn.disabled = _batchExportBusy || !hasSelection;
+        deleteSelectedBtn.textContent = 'Delete selected';
+    }
+    if (bulkActionsDetails) {
+        bulkActionsDetails.classList.toggle('is-disabled', !hasSelection);
+        if (!hasSelection) bulkActionsDetails.removeAttribute('open');
+    }
+    if (bulkActionsSummary) {
+        bulkActionsSummary.textContent = `Bulk actions (${selectedCount})`;
+        bulkActionsSummary.setAttribute('aria-disabled', hasSelection ? 'false' : 'true');
+    }
 
     if (select) {
         select.disabled = _batchExportBusy || !hasTags;
+    }
+
+    const selectAllCheckbox = document.querySelector('.tags-table thead .tag-select-checkbox[aria-label="Select all tags"]');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = hasTags && selectedCount === state.tags.length;
     }
 
     const statusEl = document.getElementById('batchExportStatus');
@@ -650,59 +781,102 @@ function setBatchExportStatus(message = '', tone = 'info', isBusy = _batchExport
     syncBatchExportControls();
 }
 
+function getSelectedTags() {
+    return state.tags.filter(tag => _selectedTagIds.has(tag.id));
+}
+
+function toggleTagSelection(tagId, checked) {
+    if (checked) _selectedTagIds.add(tagId);
+    else _selectedTagIds.delete(tagId);
+    syncBatchExportControls();
+}
+
+function toggleTagSelectionFromCell(tagId, event) {
+    const target = event?.target;
+    if (target && target.closest('.tag-select-checkbox')) return;
+    const nextChecked = !_selectedTagIds.has(tagId);
+    toggleTagSelection(tagId, nextChecked);
+    renderDashboard();
+}
+
+function toggleAllTagSelection(checked) {
+    if (checked) state.tags.forEach(tag => _selectedTagIds.add(tag.id));
+    else _selectedTagIds.clear();
+    renderDashboard();
+}
+
+function selectAllTags() {
+    state.tags.forEach(tag => _selectedTagIds.add(tag.id));
+    renderDashboard();
+}
+
+function clearTagSelection() {
+    _selectedTagIds.clear();
+    renderDashboard();
+}
+
 // ============================================
 // RENDERING FUNCTIONS
 // ============================================
 function renderDashboard() {
     const dashboard = document.getElementById('dashboard');
+    const validIds = new Set(state.tags.map(tag => tag.id));
+    _selectedTagIds = new Set([..._selectedTagIds].filter(id => validIds.has(id)));
     const hasTags = state.tags.length > 0;
+    const selectedCount = _selectedTagIds.size;
+    const allSelected = hasTags && selectedCount === state.tags.length;
+    const bulkActionsDisabled = selectedCount === 0;
     const header = `
-                <div class="dashboard-header">
-                    <h2>Your Tags (${state.tags.length})</h2>
-                </div>
                 <div class="dashboard-top-dock">
                     <div class="dashboard-top-dock-inner">
-                        <div class="dashboard-tools">
-                            <button class="btn btn-secondary btn-sm" onclick="importTagsJSON()" title="Import JSON">Import JSON</button>
-                            <button class="btn btn-secondary btn-sm" onclick="exportTagsJSON()" title="Export JSON">Export JSON</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-    const batchDock = `
-                <div class="batch-export-dock">
-                    <div class="batch-export-dock-inner">
-                        <div class="batch-export-controls">
-                            <div class="batch-format-field">
-                                <label for="batchExportFormat" class="batch-format-label">Batch Format</label>
-                                <select id="batchExportFormat" class="form-select batch-format-select" title="Batch export format" onchange="rememberBatchExportFormat(this.value)">
-                                    <option value="3mf" ${_batchExportFormatSelection === '3mf' ? 'selected' : ''}>3MF</option>
-                                    <option value="step" ${_batchExportFormatSelection === 'step' ? 'selected' : ''}>STEP</option>
-                                    <option value="svg" ${_batchExportFormatSelection === 'svg' ? 'selected' : ''}>SVG</option>
-                                </select>
+                        <div class="table-toolbar">
+                            <div class="table-toolbar-row">
+                                <div class="table-toolbar-bulk table-toolbar-bulk-only-menu">
+                                    <details class="table-bulk-details ${bulkActionsDisabled ? 'is-disabled' : ''}" id="bulkActionsDetails">
+                                        <summary class="btn btn-secondary btn-sm table-bulk-summary" aria-disabled="${bulkActionsDisabled ? 'true' : 'false'}" onclick="handleBulkActionsSummaryClick(event, ${bulkActionsDisabled})">Bulk actions (${selectedCount})</summary>
+                                        <div class="table-bulk-menu" role="menu">
+                                            <button type="button" class="table-bulk-menu-item btn btn-secondary btn-sm" id="exportJsonBulkBtn" onclick="closeBulkActionsMenu(); exportTagsJSON();" title="Export all labels as JSON">${getActionIcon('export')}Export JSON</button>
+                                            <div class="table-bulk-menu-sep" role="separator"></div>
+                                            <button type="button" class="table-bulk-menu-item btn btn-danger btn-sm" id="deleteSelectedBtn" onclick="closeBulkActionsMenu(); deleteSelectedTags();" title="Delete selected labels" ${bulkActionsDisabled ? 'disabled' : ''}>Delete selected</button>
+                                        </div>
+                                    </details>
+                                </div>
+                                <div class="table-toolbar-actions">
+                                    <button class="btn btn-secondary btn-sm" onclick="importTagsJSON()" title="Import JSON">${getActionIcon('import')}Import JSON</button>
+                                    <button class="btn btn-primary btn-sm" onclick="openEditor()" title="Create new label">+ New Tag</button>
+                                </div>
                             </div>
                         </div>
-                        <button class="btn btn-secondary btn-sm" id="exportAllBtn" onclick="exportAllTags()" title="Batch export selected format" ${hasTags ? '' : 'disabled'}>Export All</button>
                     </div>
-                    <div id="batchExportStatus" class="batch-export-status batch-export-status-dock" aria-live="polite"></div>
                 </div>
             `;
 
     if (!hasTags) {
+        dashboard.classList.remove('has-export-dock');
         dashboard.innerHTML = header + `
                     <div class="empty-state">
                         <div class="empty-state-icon">◧</div>
                         <h3>No Tags Created Yet</h3>
                         <p>Click "Add New Tag" to create your first label</p>
                     </div>
-                ` + batchDock;
+                `;
         syncBatchExportControls();
         return;
     }
 
     const rows = state.tags.map(tag => {
+        const isSelected = _selectedTagIds.has(tag.id);
         return `
                 <tr data-id="${tag.id}">
+                    <td class="table-select-cell" data-label="Select" onclick="toggleTagSelectionFromCell('${tag.id}', event)">
+                        <input
+                            type="checkbox"
+                            class="tag-select-checkbox"
+                            aria-label="Select ${escapeHtml(tag.name)}"
+                            onchange="toggleTagSelection('${tag.id}', this.checked)"
+                            ${isSelected ? 'checked' : ''}
+                        >
+                    </td>
                     <td class="table-preview-cell" data-label="Preview">
                         <div class="table-preview table-preview-interactive"
                              onclick="handleTagPreviewClick(event, '${tag.id}')"
@@ -716,23 +890,64 @@ function renderDashboard() {
                     </td>
                     <td class="table-text-cell" data-label="Name">
                         <div class="tag-name">${escapeHtml(tag.name)}</div>
-                        <div class="tag-meta">${CONFIG.baseSizes[tag.size].label}</div>
+                        <div class="tag-meta">${(tag.texts || []).filter(Boolean).join(' · ') || 'No text'}</div>
+                    </td>
+                    <td class="table-size-cell" data-label="Size">
+                        <div class="tag-meta">${CONFIG.baseSizes[tag.size] ? CONFIG.baseSizes[tag.size].label : tag.size}</div>
+                    </td>
+                    <td class="table-shape-cell" data-label="Shape">
+                        <div class="tag-meta">${LABEL_SHAPES[tag.labelShape] ? LABEL_SHAPES[tag.labelShape].label : 'Classic'}</div>
                     </td>
                     <td class="table-actions-cell" data-label="Actions">
-                        <button class="btn btn-icon" onclick="openTagPreview3D('${tag.id}')" title="3D Preview">🧊</button>
-                        <button class="btn btn-icon" onclick="editTag('${tag.id}')" title="Edit">✏️</button>
-                        <button class="btn btn-icon" onclick="deleteTag('${tag.id}')" title="Delete">🗑️</button>
+                        <div class="table-actions-inline">
+                            <button class="btn btn-icon" onclick="openTagPreview3D('${tag.id}')" title="3D Preview">${getActionIcon('preview')}</button>
+                            <button class="btn btn-icon" onclick="editTag('${tag.id}')" title="Edit">${getActionIcon('edit')}</button>
+                            <button class="btn btn-icon" onclick="duplicateTag('${tag.id}')" title="Duplicate">${getActionIcon('duplicate')}</button>
+                            <button class="btn btn-icon" onclick="deleteTag('${tag.id}')" title="Delete">${getActionIcon('delete')}</button>
+                        </div>
                     </td>
                 </tr>
                 `;
     }).join('');
 
+    const exportBottomDock = `
+                <div class="batch-export-dock">
+                    <div class="batch-export-dock-inner">
+                        <div class="batch-export-controls">
+                            <div class="batch-format-field">
+                                <label for="batchExportFormat" class="batch-format-label">Export format</label>
+                                <select id="batchExportFormat" class="form-select batch-format-select" title="Batch export format" onchange="rememberBatchExportFormat(this.value)">
+                                    <option value="3mf" ${_batchExportFormatSelection === '3mf' ? 'selected' : ''}>3MF</option>
+                                    <option value="step" ${_batchExportFormatSelection === 'step' ? 'selected' : ''}>STEP</option>
+                                    <option value="svg" ${_batchExportFormatSelection === 'svg' ? 'selected' : ''}>SVG</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="exportAllBtn" onclick="exportAllTags()" title="Export all labels in selected format">Export All</button>
+                        <button class="btn btn-secondary btn-sm" id="exportSelectedBtn" onclick="exportSelectedTags()" title="Export selected labels in selected format">Export Selected (${selectedCount})</button>
+                    </div>
+                    <div id="batchExportStatus" class="batch-export-status batch-export-status-dock" aria-live="polite"></div>
+                </div>
+            `;
+
+    dashboard.classList.add('has-export-dock');
     dashboard.innerHTML = header + `
                 <table class="tags-table">
                     <thead>
                         <tr>
+                            <th class="table-select-cell">
+                                <input
+                                    type="checkbox"
+                                    class="tag-select-checkbox"
+                                    aria-label="Select all tags"
+                                    onchange="toggleAllTagSelection(this.checked)"
+                                    ${allSelected ? 'checked' : ''}
+                                >
+                            </th>
                             <th>Preview</th>
                             <th>Name</th>
+                            <th>Size</th>
+                            <th>Shape</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -740,7 +955,7 @@ function renderDashboard() {
                         ${rows}
                     </tbody>
                 </table>
-            ` + batchDock;
+            ` + exportBottomDock;
     syncBatchExportControls();
 
     // Generate previews for tags that don't have one yet
@@ -749,7 +964,7 @@ function renderDashboard() {
 
 function updateStickyUIOffsets() {
     const headerEl = document.querySelector('.header');
-    const headerHeight = headerEl ? headerEl.offsetHeight : 64;
+    const headerHeight = headerEl ? headerEl.offsetHeight : 0;
     document.documentElement.style.setProperty('--app-header-offset', `${headerHeight}px`);
 }
 
@@ -845,14 +1060,36 @@ function renderZoneEditor() {
     }
 }
 
+function syncPageScrollLock() {
+    const editorModal = document.getElementById('editorModal');
+    const slotModal = document.getElementById('slotEditorModal');
+    const previewModal = document.getElementById('preview3DModal');
+    const jsonExportModal = document.getElementById('jsonExportModal');
+    const jsonImportModal = document.getElementById('jsonImportModal');
+    const locked = Boolean(
+        (editorModal && editorModal.classList.contains('active')) ||
+        (slotModal && slotModal.classList.contains('active')) ||
+        (previewModal && previewModal.classList.contains('active')) ||
+        (jsonExportModal && jsonExportModal.classList.contains('active')) ||
+        (jsonImportModal && jsonImportModal.classList.contains('active'))
+    );
+    document.body.classList.toggle('modal-scroll-lock', locked);
+}
+
 function openSlotEditorModal() {
     const modal = document.getElementById('slotEditorModal');
-    if (modal) modal.classList.add('active');
+    if (modal) {
+        modal.classList.add('active');
+        syncPageScrollLock();
+    }
 }
 
 function closeSlotEditorModal() {
     const modal = document.getElementById('slotEditorModal');
-    if (modal) modal.classList.remove('active');
+    if (modal) {
+        modal.classList.remove('active');
+        syncPageScrollLock();
+    }
 }
 
 async function openIconPicker() {
@@ -886,10 +1123,7 @@ function renderIconZonePanel(panel, index) {
                                value="${escapeHtml(pickerState.query)}"
                                oninput="updateIconSearch(this.value, ${index}, this.selectionStart)">
                     </div>
-                    ${renderSelectedIconFilters(index, pickerState)}
-                    ${renderCurrentIconPickerPills(index, pickerState)}
                     ${renderIconGallery(index, results)}
-                    <button type="button" class="btn btn-secondary" onclick="cancelZoneEdit()">Cancel</button>
                 </div>
             `;
 }
@@ -901,12 +1135,8 @@ function renderInlineIconZonePanel(panel, index) {
     panel.innerHTML = `
                 <div class="zone-inline-header">
                     <span class="zone-inline-title">${label}</span>
-                    <span class="zone-inline-type">Icon</span>
                 </div>
                 <div class="zone-inline-row">
-                    <div class="zone-inline-current">
-                        ${selectedIcon ? `<img class="zone-inline-icon-preview" src="${buildIconUrl(selectedIcon.svg, true)}" alt="${escapeHtml(selectedIcon.name)}">` : '<span class="zone-inline-placeholder">No icon selected</span>'}
-                    </div>
                     <div class="zone-inline-actions">
                         <button type="button" class="btn btn-secondary btn-sm" onclick="openIconPicker()">Edit Icon</button>
                         <button type="button" class="btn btn-secondary btn-sm" onclick="clearIcon(${index})" ${selectedIcon ? '' : 'disabled'}>Clear</button>
@@ -921,7 +1151,10 @@ function renderInlineIconZonePanel(panel, index) {
                            min="10"
                            max="100"
                            value="${state.iconSize}"
-                           oninput="updateIconSize(this.value)">
+                           oninput="updateIconSize(this.value)"
+                           onchange="flushCanvasRender()"
+                           onpointerup="flushCanvasRender()"
+                           ontouchend="flushCanvasRender()">
                 </div>
             `;
 }
@@ -978,7 +1211,10 @@ function renderInlineTextZonePanel(panel, index) {
                            min="10"
                            max="100"
                            value="${state.textSize}"
-                           oninput="updateTextSize(this.value)">
+                           oninput="updateTextSize(this.value)"
+                           onchange="flushCanvasRender()"
+                           onpointerup="flushCanvasRender()"
+                           ontouchend="flushCanvasRender()">
                 </div>
             `;
 
@@ -1180,21 +1416,53 @@ function renderIconGallery(zoneIndex, icons) {
                 </div>`;
     }
 
-    return `
-                <div class="icon-gallery">
-                    ${icons.map(icon => `
-                        <button type="button"
-                                class="icon-gallery-item ${state.icons[zoneIndex] && state.icons[zoneIndex].filename === icon.filename ? 'selected' : ''}"
-                                data-filename="${escapeHtml(icon.filename)}"
-                                onclick="selectIconByFilename(${zoneIndex}, '${escapeInlineJs(icon.filename)}')">
-                            <div class="icon-gallery-preview">
-                                <img src="${buildIconUrl(icon.svg, true)}" alt="${escapeHtml(icon.displayName)}" onerror="this.style.display='none';">
-                            </div>
-                            <span class="icon-gallery-name">${escapeHtml(icon.displayName)}</span>
-                        </button>
-                    `).join('')}
-                </div>
+    const grouped = new Map();
+    icons.forEach(icon => {
+        const categoryKey = icon.categoryToken || 'uncategorized';
+        const subcategoryKey = icon.subcategoryToken || 'general';
+        if (!grouped.has(categoryKey)) grouped.set(categoryKey, new Map());
+        const subMap = grouped.get(categoryKey);
+        if (!subMap.has(subcategoryKey)) subMap.set(subcategoryKey, []);
+        subMap.get(subcategoryKey).push(icon);
+    });
+
+    const sections = Array.from(grouped.entries())
+        .sort((a, b) => formatDisplayName(a[0]).localeCompare(formatDisplayName(b[0])))
+        .map(([categoryKey, subcategoryMap]) => {
+            const subSections = Array.from(subcategoryMap.entries())
+                .sort((a, b) => {
+                    const aIsGeneral = a[0] === 'general';
+                    const bIsGeneral = b[0] === 'general';
+                    if (aIsGeneral !== bIsGeneral) return aIsGeneral ? 1 : -1;
+                    return formatDisplayName(a[0]).localeCompare(formatDisplayName(b[0]));
+                })
+                .map(([subcategoryKey, subIcons]) => `
+                    <div class="icon-gallery-subsection">
+                        <h5 class="icon-gallery-subsection-title">${escapeHtml(formatDisplayName(subcategoryKey))}</h5>
+                        <div class="icon-gallery">
+                            ${subIcons.map(icon => `
+                                <button type="button"
+                                        class="icon-gallery-item ${state.icons[zoneIndex] && state.icons[zoneIndex].filename === icon.filename ? 'selected' : ''}"
+                                        data-filename="${escapeHtml(icon.filename)}"
+                                        onclick="selectIconByFilename(${zoneIndex}, '${escapeInlineJs(icon.filename)}')">
+                                    <div class="icon-gallery-preview">
+                                        <img src="${buildIconUrl(icon.svg, true)}" alt="${escapeHtml(icon.displayName)}" onerror="this.style.display='none';">
+                                    </div>
+                                    <span class="icon-gallery-name">${escapeHtml(icon.displayName)}</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `);
+            return `
+                <section class="icon-gallery-section">
+                    <h4 class="icon-gallery-section-title">${escapeHtml(formatDisplayName(categoryKey))}</h4>
+                    ${subSections.join('')}
+                </section>
             `;
+        });
+
+    return `<div class="icon-gallery-sections">${sections.join('')}</div>`;
 }
 
 // Build tagData object from current editor state
@@ -1282,6 +1550,22 @@ function computeZonePositions() {
 }
 
 let _renderSeq = 0;
+let _canvasRenderRaf = 0;
+
+function scheduleCanvasRender() {
+    cancelAnimationFrame(_canvasRenderRaf);
+    _canvasRenderRaf = requestAnimationFrame(() => {
+        _canvasRenderRaf = 0;
+        renderCanvas();
+    });
+}
+
+function flushCanvasRender() {
+    cancelAnimationFrame(_canvasRenderRaf);
+    _canvasRenderRaf = 0;
+    renderCanvas();
+}
+
 async function renderCanvas() {
     const seq = ++_renderSeq;
     const canvas = document.getElementById('canvas');
@@ -1311,7 +1595,14 @@ async function renderCanvas() {
                     onclick="selectZone('${z.type}', ${z.index}); event.stopPropagation();">${emptyLabel}</div>`;
     }).join('');
 
-    canvas.innerHTML = `<img src="${dataUrl}"><div class="canvas-overlays">${overlayHtml}</div>`;
+    const img = canvas.querySelector(':scope > img');
+    const overlays = canvas.querySelector(':scope > .canvas-overlays');
+    if (img && overlays) {
+        img.src = dataUrl;
+        overlays.innerHTML = overlayHtml;
+    } else {
+        canvas.innerHTML = `<img src="${dataUrl}" alt="Label preview"><div class="canvas-overlays">${overlayHtml}</div>`;
+    }
     updateAutoName();
 }
 
@@ -1444,6 +1735,7 @@ function openEditor(tagId = null) {
     renderCanvas();
 
     document.getElementById('editorModal').classList.add('active');
+    syncPageScrollLock();
 }
 
 function closeEditor() {
@@ -1455,6 +1747,7 @@ function closeEditor() {
     state.editingId = null;
     setSingleExportBusyState(false);
     setSingleExportStatus('');
+    syncPageScrollLock();
 }
 
 function selectLabelShape(shapeKey) {
@@ -1523,7 +1816,7 @@ function updateIconSize(value) {
     markZoneEditDirty();
     const label = document.getElementById('iconSizeValue');
     if (label) label.textContent = `${state.iconSize}%`;
-    renderCanvas();
+    scheduleCanvasRender();
 }
 
 function updateTextSize(value) {
@@ -1533,7 +1826,7 @@ function updateTextSize(value) {
     markZoneEditDirty();
     const label = document.getElementById('textSizeValue');
     if (label) label.textContent = `${state.textSize}%`;
-    renderCanvas();
+    scheduleCanvasRender();
 }
 
 function updateTextAlign(value) {
@@ -2082,9 +2375,17 @@ async function runParallelBatchExport(tags, format, styleVal) {
 }
 
 async function exportAllTags() {
+    return exportTagSubset(state.tags, 'all');
+}
+
+async function exportSelectedTags() {
+    return exportTagSubset(getSelectedTags(), 'selected');
+}
+
+async function exportTagSubset(tags, scopeLabel) {
     if (_batchExportBusy) return;
-    if (state.tags.length === 0) {
-        alert('No tags to export.');
+    if (!tags || tags.length === 0) {
+        alert(scopeLabel === 'selected' ? 'No selected tags to export.' : 'No tags to export.');
         return;
     }
 
@@ -2097,7 +2398,7 @@ async function exportAllTags() {
         }
 
         setBatchExportStatus(`Preparing batch ${format.toUpperCase()} export...`, 'info', true);
-        const results = await runParallelBatchExport(state.tags, format, styleVal);
+        const results = await runParallelBatchExport(tags, format, styleVal);
 
         setBatchExportStatus('Creating ZIP archive...', 'info', true);
         const zip = new JSZip();
@@ -2106,7 +2407,8 @@ async function exportAllTags() {
         }
 
         const zipBlob = await zip.generateAsync({ type: 'blob' });
-        triggerBlobDownload(zipBlob, `infinitygrid_${format}_labels.zip`);
+        const suffix = scopeLabel === 'selected' ? 'selected' : 'all';
+        triggerBlobDownload(zipBlob, `infinitygrid_${format}_${suffix}_labels.zip`);
         setBatchExportStatus(`Batch export ready: ${results.length} files (${format.toUpperCase()}).`, 'success', false);
         setTimeout(() => {
             if (!_batchExportBusy) setBatchExportStatus('', 'info', false);
@@ -2122,6 +2424,18 @@ async function exportAllTags() {
         if (_batchExportBusy) setBatchExportStatus(_batchExportStatus.message, _batchExportStatus.tone, false);
         syncBatchExportControls();
     }
+}
+
+function deleteSelectedTags() {
+    const selected = getSelectedTags();
+    if (!selected.length) return;
+    if (!confirm(`Delete ${selected.length} selected label${selected.length === 1 ? '' : 's'}?`)) return;
+
+    const selectedIds = new Set(selected.map(tag => tag.id));
+    state.tags = state.tags.filter(tag => !selectedIds.has(tag.id));
+    _selectedTagIds.clear();
+    saveToStorage();
+    renderDashboard();
 }
 
 function startTagPreviewPress(event, tagId) {
@@ -2184,9 +2498,41 @@ async function openTagPreview3D(tagId) {
     }
 }
 
+function buildDuplicateTagName(baseName) {
+    const sourceName = (baseName || 'Tag').trim() || 'Tag';
+    const exactCopyName = `${sourceName} (copy)`;
+    const existingNames = new Set(state.tags.map(t => String(t.name || '').trim()));
+    if (!existingNames.has(exactCopyName)) return exactCopyName;
+
+    let i = 2;
+    while (existingNames.has(`${sourceName} (copy ${i})`)) i += 1;
+    return `${sourceName} (copy ${i})`;
+}
+
+function duplicateTag(tagId) {
+    const source = state.tags.find(t => t.id === tagId);
+    if (!source) return;
+
+    const now = Date.now();
+    const duplicated = {
+        ...source,
+        id: generateId(),
+        name: buildDuplicateTagName(source.name),
+        icons: (source.icons || [null, null]).map(icon => (icon ? { ...icon } : null)),
+        texts: [...(source.texts || ['', ''])],
+        createdAt: now,
+        updatedAt: now
+    };
+
+    state.tags = [...state.tags, duplicated];
+    saveToStorage();
+    renderDashboard();
+}
+
 function deleteTag(tagId) {
     if (confirm('Are you sure you want to delete this tag?')) {
         state.tags = state.tags.filter(t => t.id !== tagId);
+        _selectedTagIds.delete(tagId);
         saveToStorage();
         renderDashboard();
     }
@@ -2408,6 +2754,7 @@ function closePreview3DModal() {
     if (mount) mount.innerHTML = '';
     const status = document.getElementById('preview3DStatus');
     if (status) status.textContent = '';
+    syncPageScrollLock();
 }
 
 async function show3DPreviewForTag(tagData) {
@@ -2420,6 +2767,7 @@ async function show3DPreviewForTag(tagData) {
     }
 
     modal.classList.add('active');
+    syncPageScrollLock();
     mount.innerHTML = '';
     status.textContent = 'Generating preview mesh...';
 
@@ -2518,38 +2866,65 @@ async function show3DPreviewForTag(tagData) {
 }
 
 let _iconIdCounter = 0;
+const _svgTextCache = new Map();
+const _svgFetchInflight = new Map();
+
+function clearSvgTextCache() {
+    _svgTextCache.clear();
+    _svgFetchInflight.clear();
+}
+
+async function loadSvgTextCached(svgPath) {
+    const key = String(svgPath || '').trim();
+    if (!key) throw new Error('empty svg path');
+
+    if (_svgTextCache.has(key)) return _svgTextCache.get(key);
+
+    let inflight = _svgFetchInflight.get(key);
+    if (!inflight) {
+        inflight = (async () => {
+            const response = await fetch(buildIconUrl(key, true), { cache: 'no-store' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const text = await response.text();
+            _svgTextCache.set(key, text);
+            _svgFetchInflight.delete(key);
+            return text;
+        })().catch(err => {
+            _svgFetchInflight.delete(key);
+            throw err;
+        });
+        _svgFetchInflight.set(key, inflight);
+    }
+    return inflight;
+}
 
 async function createIconSVGElement(svgPath, x, y, w, h) {
-    // Try to fetch and embed the SVG content
     try {
-        const response = await fetch(buildIconUrl(svgPath, true), { cache: 'no-store' });
-        if (response.ok) {
-            let svgText = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(svgText, 'image/svg+xml');
-            const svgEl = doc.querySelector('svg');
+        const svgText = await loadSvgTextCached(svgPath);
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(svgText, 'image/svg+xml');
+        const svgEl = doc.querySelector('svg');
 
-            if (svgEl) {
-                const viewBox = svgEl.getAttribute('viewBox') || `0 0 ${w} ${h}`;
-                let innerContent = svgEl.innerHTML;
+        if (svgEl) {
+            const viewBox = svgEl.getAttribute('viewBox') || `0 0 ${w} ${h}`;
+            let innerContent = svgEl.innerHTML;
 
-                // Make IDs unique to avoid conflicts between multiple icons
-                const uid = 'ic' + (++_iconIdCounter);
-                innerContent = innerContent.replace(/\bid="([^"]*)"/g, `id="${uid}_$1"`);
-                innerContent = innerContent.replace(/url\(#([^)]*)\)/g, `url(#${uid}_$1)`);
-                innerContent = innerContent.replace(/href="#([^"]*)"/g, `href="#${uid}_$1"`);
+            // Make IDs unique to avoid conflicts between multiple icons
+            const uid = 'ic' + (++_iconIdCounter);
+            innerContent = innerContent.replace(/\bid="([^"]*)"/g, `id="${uid}_$1"`);
+            innerContent = innerContent.replace(/url\(#([^)]*)\)/g, `url(#${uid}_$1)`);
+            innerContent = innerContent.replace(/href="#([^"]*)"/g, `href="#${uid}_$1"`);
 
-                // Use nested <svg> — the browser handles viewBox mapping natively,
-                // including masks, clips, defs, and non-zero viewBox origins.
-                return `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="${viewBox}" overflow="hidden">${innerContent}</svg>\n`;
-            }
+            // Use nested <svg> — the browser handles viewBox mapping natively,
+            // including masks, clips, defs, and non-zero viewBox origins.
+            return `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="${viewBox}" overflow="hidden">${innerContent}</svg>\n`;
         }
     } catch (e) {
         console.error('Error loading SVG:', e);
     }
 
-    // Fallback: draw a rectangle placeholder
-    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="black" />\n`;
+    // Fallback: keep icon slot empty when icon source is missing
+    return '';
 }
 
 const TEXT_FONT_WEIGHT = 400;
@@ -2675,11 +3050,13 @@ function openJSONExportModal(jsonText, fileName) {
 
     const modal = document.getElementById('jsonExportModal');
     if (modal) modal.classList.add('active');
+    syncPageScrollLock();
 }
 
 function closeJSONExportModal() {
     const modal = document.getElementById('jsonExportModal');
     if (modal) modal.classList.remove('active');
+    syncPageScrollLock();
 }
 
 function downloadExportedJSON() {
@@ -2773,11 +3150,13 @@ function openJSONImportModal() {
     if (textarea) textarea.value = '';
     const modal = document.getElementById('jsonImportModal');
     if (modal) modal.classList.add('active');
+    syncPageScrollLock();
 }
 
 function closeJSONImportModal() {
     const modal = document.getElementById('jsonImportModal');
     if (modal) modal.classList.remove('active');
+    syncPageScrollLock();
 }
 
 function importJSONString(jsonString) {
@@ -2794,6 +3173,8 @@ function importJSONString(jsonString) {
     } else {
         throw new Error('Invalid JSON format: missing tags array');
     }
+
+    normalizeTagIcons(newTags);
 
     // if (settings) { // Removed STL settings import logic
     //     localStorage.setItem('infinitygrid_stl_settings', JSON.stringify(settings));
@@ -2886,10 +3267,34 @@ document.addEventListener('DOMContentLoaded', init);
 window.addEventListener('resize', updateStickyUIOffsets);
 window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
-        const modal = document.getElementById('preview3DModal');
-        if (modal && modal.classList.contains('active')) {
-            if (modal._cleanup) modal._cleanup();
+        const slotEditorModal = document.getElementById('slotEditorModal');
+        if (slotEditorModal && slotEditorModal.classList.contains('active')) {
+            cancelZoneEdit();
+            return;
+        }
+
+        const previewModal = document.getElementById('preview3DModal');
+        if (previewModal && previewModal.classList.contains('active')) {
+            if (previewModal._cleanup) previewModal._cleanup();
             closePreview3DModal();
+            return;
+        }
+
+        const jsonImportModal = document.getElementById('jsonImportModal');
+        if (jsonImportModal && jsonImportModal.classList.contains('active')) {
+            closeJSONImportModal();
+            return;
+        }
+
+        const jsonExportModal = document.getElementById('jsonExportModal');
+        if (jsonExportModal && jsonExportModal.classList.contains('active')) {
+            closeJSONExportModal();
+            return;
+        }
+
+        const editorModal = document.getElementById('editorModal');
+        if (editorModal && editorModal.classList.contains('active')) {
+            closeEditor();
         }
     }
 });

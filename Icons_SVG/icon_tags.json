@@ -1,0 +1,474 @@
+{
+  "icons": [
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "5mm.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "9v-battery.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "aa-battery.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "button-round.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "button-square.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "buttonsquare.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "card.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "chip.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "coin-cell-battery.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "electrolytic.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "fuse-1.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "fuse-2.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "header-female-alt.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "header-female.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "header-male.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "limitswitch.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "nano.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "potentiometer.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "resistor.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "switch.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "switch1.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "transistor.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "twist.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "voltage.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
+      "fileName": "wago.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "barrel.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "blade.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "bullet-female.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "bullet-male.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "butt.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "crimp.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "dupont-female.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "dupont-male.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "fork.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "jst.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "ring.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "rj45.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "spade-female.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "spade-male.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "usba.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "usbc.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "xt60.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "drive",
+      "fileName": "drive_hex.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "drive",
+      "fileName": "drive_phillips.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "drive",
+      "fileName": "drive_phillips_white.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "drive",
+      "fileName": "drive_slotted.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "drive",
+      "fileName": "drive_square.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "drive",
+      "fileName": "drive_torx.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "drive",
+      "fileName": "hex.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "general",
+      "fileName": "acorn.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "general",
+      "fileName": "cotter-pin.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "general",
+      "fileName": "heat-insert.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "general",
+      "fileName": "hex_top.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "general",
+      "fileName": "rivet.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "general",
+      "fileName": "setscrew.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "general",
+      "fileName": "t-nut.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "general",
+      "fileName": "tslot.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "button_head.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "button_head_alt.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "cap_socket.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "countersunk.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "flat_head.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "flat_head_alt.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "machine_countersunk.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "pan_head.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "round_head.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "screw.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "shoulder.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "socket-head-low.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "socket-head.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "t-head.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "thumb.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "truss_head.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "head",
+      "fileName": "wood_countersunk.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "fender.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "flat.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "lock_external.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "lock_internal.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "outline.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "snapring.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "snapringintenal.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "snapringinternal.svg"
+    },
+    {
+      "mainCategory": "fasteners",
+      "subCategory": "washer",
+      "fileName": "split.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "2eyes.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "ball-bearing.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "bearing.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "cabletie.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "linear-bearing.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "magnet.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "nozzle.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "ptfe-fitting.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "pulley.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "spring.svg"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
+      "fileName": "thumbscrew.svg"
+    }
+  ]
+}

@@ -16,6 +16,7 @@ PORT = int(os.environ.get("PORT", "3000"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 BASE_DIR = Path(__file__).parent.resolve()
 ICONS_FOLDER = BASE_DIR / "Icons_SVG"
+ICON_TAGS_FILE = ICONS_FOLDER / "icon_tags.json"
 TMP_DIR = Path(os.environ.get("TMPDIR", "/tmp"))
 
 # Ensure font files under /assets are served with correct MIME types.
@@ -688,13 +689,49 @@ def get_icons_version():
         if f.suffix.lower() == ".svg":
             count += 1
             latest_mtime_ns = max(latest_mtime_ns, f.stat().st_mtime_ns)
+    if ICON_TAGS_FILE.exists():
+        latest_mtime_ns = max(latest_mtime_ns, ICON_TAGS_FILE.stat().st_mtime_ns)
     return f"{count}-{latest_mtime_ns}"
+
+def get_icon_tags():
+    """Load icon category metadata from icon_tags.json."""
+    if not ICON_TAGS_FILE.exists():
+        return []
+    try:
+        payload = json.loads(ICON_TAGS_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"Failed to read icon tags file: {exc}")
+        return []
+
+    if isinstance(payload, dict):
+        entries = payload.get("icons", [])
+    elif isinstance(payload, list):
+        entries = payload
+    else:
+        entries = []
+    if not isinstance(entries, list):
+        return []
+
+    tags = []
+    for row in entries:
+        if not isinstance(row, dict):
+            continue
+        file_name = str(row.get("fileName", "")).strip()
+        if not file_name:
+            continue
+        tags.append({
+            "mainCategory": str(row.get("mainCategory", "uncategorized")).lower(),
+            "subCategory": str(row.get("subCategory", "general")).lower(),
+            "fileName": file_name
+        })
+    return tags
 
 @app.get("/api/icons")
 async def list_icons():
     """API endpoint to list available icons."""
     icons = get_icon_files()
-    return JSONResponse(content={"files": icons, "version": get_icons_version()})
+    tags = get_icon_tags()
+    return JSONResponse(content={"files": icons, "tags": tags, "version": get_icons_version()})
 
 @app.post("/api/export_step")
 async def export_step_endpoint(
