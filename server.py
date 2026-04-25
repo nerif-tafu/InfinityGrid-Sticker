@@ -19,8 +19,13 @@ BASE_DIR = Path(__file__).parent.resolve()
 ICONS_FOLDER = BASE_DIR / "Icons_SVG"
 ICON_TAGS_FILE = ICONS_FOLDER / "icon_tags.json"
 TMP_DIR = Path(os.environ.get("TMPDIR", "/tmp"))
-MAX_PARALLEL_EXPORT_JOBS = max(1, int(os.environ.get("MAX_PARALLEL_EXPORT_JOBS", "3")))
+MAX_PARALLEL_EXPORT_JOBS = max(1, int(os.environ.get("MAX_PARALLEL_EXPORT_JOBS", "4")))
 EXPORT_JOB_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_EXPORT_JOBS)
+
+# Lib3MF rejects overly-dense tessellations ("3mf mesh is invalid"); defaults in
+# Mesher.add_shape (0.001 mm linear) are far finer than FDM needs and are very slow.
+MESHER_LINEAR_DEFLECTION = float(os.environ.get("MESHER_LINEAR_DEFLECTION", "0.05"))
+MESHER_ANGULAR_DEFLECTION = float(os.environ.get("MESHER_ANGULAR_DEFLECTION", "0.5"))
 
 # Ensure font files under /assets are served with correct MIME types.
 mimetypes.add_type("font/woff2", ".woff2")
@@ -73,6 +78,51 @@ def _set_shape_metadata(shape, *, label=None, material=None, color=None):
             shape.color = color
         except Exception:
             pass
+
+
+def _solid_components(shape):
+    """Return discrete solids for STEP/Compound/metadata.
+
+    import_svg + extrude sometimes yields topology that does not enumerate via
+    :meth:`Shape.solids` but still meshes as a single body (``Mesher.add_shape``).
+    """
+    try:
+        solids = list(shape.solids())
+    except Exception:
+        solids = []
+    if solids:
+        return solids
+    try:
+        if float(shape.volume) > 1e-12:
+            return [shape]
+    except Exception:
+        pass
+    # Open shells / numerical near-zero volume but still printable surface
+    try:
+        if float(shape.area) > 1e-3:
+            return [shape]
+    except Exception:
+        pass
+    try:
+        bb = shape.bounding_box()
+        diag = (bb.max - bb.min).length
+        if float(diag) > 1e-9:
+            return [shape]
+    except Exception:
+        pass
+    return []
+
+
+def _mesher_item_count(shape):
+    """How many mesh objects ``_add_part_to_mesher`` adds for this shape."""
+    try:
+        solids = list(shape.solids())
+        if solids:
+            return len(solids)
+    except Exception:
+        pass
+    return 1
+
 
 def _build_label_parts_from_svg(svg_path: Path, w, h, sty, label_shape="classic", carve_pocket=True):
     base_color = Color(0, 0, 0)
@@ -213,8 +263,7 @@ def _build_label_parts_from_svg(svg_path: Path, w, h, sty, label_shape="classic"
         color=content_color
     )
 
-    base_solids = base.part.solids()
-    for i, solid in enumerate(base_solids):
+    for i, solid in enumerate(_solid_components(base.part)):
         _set_shape_metadata(
             solid,
             label=f"Base_Black_{i + 1}",
@@ -222,8 +271,7 @@ def _build_label_parts_from_svg(svg_path: Path, w, h, sty, label_shape="classic"
             color=base_color
         )
 
-    content_solids = content_part.solids()
-    for i, solid in enumerate(content_solids):
+    for i, solid in enumerate(_solid_components(content_part)):
         _set_shape_metadata(
             solid,
             label=f"Content_White_{i + 1}",
@@ -587,8 +635,8 @@ def build_step_worker(svg_text, w, h, sty, label_shape, queue):
                 base_part, content_part = _build_label_parts_from_svg(
                     svg_path, w, h, sty, label_shape, carve_pocket=False
                 )
-            base_solids = list(base_part.solids())
-            content_solids = list(content_part.solids())
+            base_solids = _solid_components(base_part)
+            content_solids = _solid_components(content_part)
             if len(base_solids) == 0:
                 raise ValueError("STEP export generated no base geometry")
             if len(content_solids) == 0:
@@ -612,12 +660,13 @@ def _add_part_to_mesher(mesh: Mesher, shape):
     except Exception:
         solids = []
 
+    ld, ad = MESHER_LINEAR_DEFLECTION, MESHER_ANGULAR_DEFLECTION
     if solids:
         for solid in solids:
-            mesh.add_shape(solid)
+            mesh.add_shape(solid, ld, ad)
         return len(solids)
 
-    mesh.add_shape(shape)
+    mesh.add_shape(shape, ld, ad)
     return 1
 
 def build_3mf_worker(svg_text, w, h, sty, label_shape, queue):
@@ -630,13 +679,15 @@ def build_3mf_worker(svg_text, w, h, sty, label_shape, queue):
             three_mf_path = temp_dir_path / "multicolor_label.3mf"
             attempt_errors = []
 
-            for carve_pocket in (True, False):
+            # Try no-pocket first: skips expensive base boolean and usually meshes faster;
+            # pocket carve is still attempted if the fast path fails.
+            for carve_pocket in (False, True):
                 try:
                     base_part, content_part = _build_label_parts_from_svg(
                         svg_path, w, h, sty, label_shape, carve_pocket=carve_pocket
                     )
-                    base_solids = list(base_part.solids())
-                    content_solids = list(content_part.solids())
+                    base_solids = _solid_components(base_part)
+                    content_solids = _solid_components(content_part)
                     if len(base_solids) == 0:
                         raise ValueError("3MF export generated no base geometry")
                     if len(content_solids) == 0:
@@ -648,8 +699,8 @@ def build_3mf_worker(svg_text, w, h, sty, label_shape, queue):
                     mesh.write(three_mf_path)
                     _apply_3mf_materials(
                         three_mf_path,
-                        base_item_count=len(base_solids),
-                        content_item_count=len(content_solids)
+                        base_item_count=_mesher_item_count(base_part),
+                        content_item_count=_mesher_item_count(content_part),
                     )
 
                     # Validate archive integrity before returning a "success" payload.
@@ -702,7 +753,7 @@ def build_stl_preview_worker(svg_text, w, h, sty, label_shape, queue):
                 try:
                     preview_assembly = Compound(
                         label="Preview_Label",
-                        children=base_part.solids() + content_part.solids()
+                        children=_solid_components(base_part) + _solid_components(content_part),
                     )
                     export_stl(preview_assembly, str(stl_path))
                     wrote_preview = True

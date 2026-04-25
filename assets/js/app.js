@@ -853,7 +853,7 @@ function renderDashboard() {
                                     <details class="table-bulk-details ${bulkActionsDisabled ? 'is-disabled' : ''}" id="bulkActionsDetails">
                                         <summary class="btn btn-secondary btn-sm table-bulk-summary" aria-disabled="${bulkActionsDisabled ? 'true' : 'false'}" onclick="handleBulkActionsSummaryClick(event, ${bulkActionsDisabled})">Bulk actions (${selectedCount})</summary>
                                         <div class="table-bulk-menu" role="menu">
-                                            <button type="button" class="table-bulk-menu-item btn btn-secondary btn-sm" id="exportJsonBulkBtn" onclick="closeBulkActionsMenu(); exportTagsJSON();" title="Export all labels as JSON">${getActionIcon('export')}Export JSON</button>
+                                            <button type="button" class="table-bulk-menu-item btn btn-secondary btn-sm" id="exportJsonBulkBtn" onclick="closeBulkActionsMenu(); exportTagsJSON(true);" title="Export selected labels as JSON" ${bulkActionsDisabled ? 'disabled' : ''}>${getActionIcon('export')}Export JSON</button>
                                             <div class="table-bulk-menu-sep" role="separator"></div>
                                             <button type="button" class="table-bulk-menu-item btn btn-danger btn-sm" id="deleteSelectedBtn" onclick="closeBulkActionsMenu(); deleteSelectedTags();" title="Delete selected labels" ${bulkActionsDisabled ? 'disabled' : ''}>Delete selected</button>
                                         </div>
@@ -933,7 +933,6 @@ function renderDashboard() {
                     <div class="batch-export-dock-inner">
                         <div class="batch-export-controls">
                             <div class="batch-format-field">
-                                <label for="batchExportFormat" class="batch-format-label">Export format</label>
                                 <select id="batchExportFormat" class="form-select batch-format-select" title="Batch export format" onchange="rememberBatchExportFormat(this.value)">
                                     <option value="3mf" ${_batchExportFormatSelection === '3mf' ? 'selected' : ''}>3MF</option>
                                     <option value="step" ${_batchExportFormatSelection === 'step' ? 'selected' : ''}>STEP</option>
@@ -2067,7 +2066,10 @@ function getSelectedExportFormat() {
 
 function getSelectedSTEPGeometryMode() {
     const select = document.getElementById('exportGeometrySelect');
-    const value = select ? String(select.value || '').toLowerCase() : 'compat';
+    if (!select) {
+        return 'vector';
+    }
+    const value = String(select.value || 'vector').toLowerCase();
     return value === 'vector' ? 'vector' : 'compat';
 }
 
@@ -2196,9 +2198,9 @@ async function generateContourSVGString(tagData) {
     const size = CONFIG.baseSizes[tagData.size];
     const widthMM = size.width;
     const heightMM = size.height;
-    // Higher raster density improves icon/text edge quality for STEP export.
-    // Keep bounded to avoid pathological payloads.
-    const pxPerMM = 28;
+    // Raster density trade-off: high px/mm improves edges but explodes rectangle
+    // count (slow client + server mesh; Lib3MF often rejects tiny facet meshes).
+    const pxPerMM = 18;
 
     const imageData = await svgToImageData(contentSvgString, widthMM, heightMM, pxPerMM);
     const rects = rasterRunsToRects(imageData);
@@ -2262,7 +2264,8 @@ async function request3MFBlob(svgString, size, styleVal, labelShapeVal = 'classi
     formData.append('label_shape', labelShapeVal);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    // 3MF can queue behind server export concurrency; allow long waits during batch export.
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
     let response;
     try {
         response = await fetch('/api/export_3mf', {
@@ -2314,9 +2317,11 @@ async function buildSTEPBlobWithFallback(tagData, size, styleVal, preferredMode)
 }
 
 async function build3MFBlobWithFallback(tagData, size, styleVal, preferredMode) {
-    // 3MF is more reliable with contour/compat geometry first.
-    // Keep vector as fallback to preserve edge-case compatibility.
-    const attempts = ['compat', 'vector'];
+    // Vector: single SVG import (fast). Compat: raster rectangles — slow and often
+    // fails Lib3MF "mesh is invalid" on dense geometry. Order follows geometry mode.
+    const attempts = preferredMode === 'vector'
+        ? ['vector', 'compat']
+        : ['compat', 'vector'];
     const errors = [];
 
     for (const mode of attempts) {
@@ -2339,7 +2344,14 @@ async function getTagSTEPBlob(tagData, styleVal = 'flush') {
     const size = CONFIG.baseSizes[tagData.size];
     if (!size) throw new Error(`Invalid tag size: ${tagData.size}`);
     const geometryMode = getSelectedSTEPGeometryMode();
-    const blob = await buildSTEPBlobWithFallback(tagData, size, styleVal, geometryMode);
+    let blob;
+    try {
+        blob = await buildSTEPBlobWithFallback(tagData, size, styleVal, geometryMode);
+    } catch (err) {
+        const labelName = String(tagData && tagData.name ? tagData.name : '').trim() || 'Unnamed label';
+        const reason = err && err.message ? err.message : String(err);
+        throw new Error(`STEP export failed for "${labelName}". ${reason}`);
+    }
     if (!blob || blob.size === 0) throw new Error('Server returned an empty STEP file');
     return blob;
 }
@@ -2348,7 +2360,14 @@ async function getTag3MFBlob(tagData, styleVal = 'flush') {
     const size = CONFIG.baseSizes[tagData.size];
     if (!size) throw new Error(`Invalid tag size: ${tagData.size}`);
     const geometryMode = getSelectedSTEPGeometryMode();
-    const blob = await build3MFBlobWithFallback(tagData, size, styleVal, geometryMode);
+    let blob;
+    try {
+        blob = await build3MFBlobWithFallback(tagData, size, styleVal, geometryMode);
+    } catch (err) {
+        const labelName = String(tagData && tagData.name ? tagData.name : '').trim() || 'Unnamed label';
+        const reason = err && err.message ? err.message : String(err);
+        throw new Error(`3MF export failed for "${labelName}". ${reason}`);
+    }
     if (!blob || blob.size === 0) throw new Error('Server returned an empty 3MF file');
     return blob;
 }
@@ -2376,14 +2395,19 @@ function getBatchConcurrency(format) {
     if (format === 'svg') {
         return Math.max(2, Math.min(8, hw));
     }
-    // Keep 3MF/STEP parallelism moderate to avoid starving the local server.
-    return Math.max(2, Math.min(4, Math.floor(hw / 2) || 2));
+    // Server caps concurrent heavy jobs; moderate client parallelism keeps the pipe full without huge queue spikes.
+    return Math.max(2, Math.min(6, hw));
 }
 
 function buildBatchFileName(tag, index, format) {
     const ext = format === '3mf' ? '3mf' : format;
     const safeName = sanitizeFileName(tag.name || `tag_${index + 1}`);
     return `${index + 1}_${safeName}.${ext}`;
+}
+
+function getBatchLabelDisplayName(tag, index) {
+    const name = String(tag && tag.name ? tag.name : '').trim();
+    return name || `Label ${index + 1}`;
 }
 
 async function runParallelBatchExport(tags, format, styleVal) {
@@ -2398,7 +2422,17 @@ async function runParallelBatchExport(tags, format, styleVal) {
             const i = nextIndex++;
             if (i >= total) return;
             const tag = tags[i];
-            const blob = await getTagBlobForFormat(tag, format, styleVal);
+            let blob;
+            try {
+                blob = await getTagBlobForFormat(tag, format, styleVal);
+            } catch (err) {
+                const labelName = getBatchLabelDisplayName(tag, i);
+                const reason = err && err.message ? err.message : String(err);
+                if (reason.includes('export failed for "')) {
+                    throw new Error(`${reason} (item ${i + 1}/${total})`);
+                }
+                throw new Error(`${format.toUpperCase()} export failed for "${labelName}" (item ${i + 1}/${total}): ${reason}`);
+            }
             results[i] = { filename: buildBatchFileName(tag, i, format), blob };
             completed += 1;
             setBatchExportProgress(completed, total);
@@ -3174,9 +3208,14 @@ async function copyExportedJSON() {
     }
 }
 
-async function exportTagsJSON() {
+async function exportTagsJSON(onlySelected = false) {
     try {
-        const portableTags = state.tags.map(tag => {
+        const sourceTags = onlySelected ? getSelectedTags() : state.tags;
+        if (onlySelected && sourceTags.length === 0) {
+            alert('Select at least one label to export JSON.');
+            return;
+        }
+        const portableTags = sourceTags.map(tag => {
             const { preview, previewVersion, ...rest } = tag;
             return rest;
         });
@@ -3188,7 +3227,8 @@ async function exportTagsJSON() {
             tags: portableTags
         };
         const jsonText = JSON.stringify(data, null, 2);
-        const fileName = `infinitygrid_tags_${new Date().toISOString().slice(0, 10)}.json`;
+        const suffix = onlySelected ? `selected_${portableTags.length}` : 'all';
+        const fileName = `infinitygrid_tags_${suffix}_${new Date().toISOString().slice(0, 10)}.json`;
         openJSONExportModal(jsonText, fileName);
     } catch (e) {
         console.error('JSON export failed:', e);
