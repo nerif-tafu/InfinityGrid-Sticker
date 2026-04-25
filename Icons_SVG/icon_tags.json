@@ -33,6 +33,11 @@
     {
       "mainCategory": "electrical",
       "subCategory": "components",
+      "fileName": "capacitor.svg"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "components",
       "fileName": "card.svg"
     },
     {
@@ -44,11 +49,6 @@
       "mainCategory": "electrical",
       "subCategory": "components",
       "fileName": "coin-cell-battery.svg"
-    },
-    {
-      "mainCategory": "electrical",
-      "subCategory": "components",
-      "fileName": "electrolytic.svg"
     },
     {
       "mainCategory": "electrical",

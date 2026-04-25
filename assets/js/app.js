@@ -229,6 +229,7 @@ let _zoneEditDirty = false;
 let _singleExportBusy = false;
 let _batchExportBusy = false;
 let _batchExportStatus = { message: '', tone: 'info' };
+let _batchExportProgress = { completed: 0, total: 0 };
 let _batchExportFormatSelection = '3mf';
 let _selectedTagIds = new Set();
 
@@ -773,11 +774,28 @@ function syncBatchExportControls() {
         statusEl.classList.toggle('is-error', _batchExportStatus.tone === 'error');
         statusEl.classList.toggle('is-success', _batchExportStatus.tone === 'success');
     }
+
+    const progressEl = document.getElementById('batchExportProgress');
+    const progressLabelEl = document.getElementById('batchExportProgressLabel');
+    const progressFillEl = document.getElementById('batchExportProgressFill');
+    if (progressEl && progressFillEl && progressLabelEl) {
+        const total = Math.max(0, Number(_batchExportProgress.total) || 0);
+        const completed = Math.max(0, Math.min(total, Number(_batchExportProgress.completed) || 0));
+        const ratio = total > 0 ? (completed / total) : 0;
+        progressEl.classList.toggle('visible', _batchExportBusy && total > 0);
+        progressLabelEl.textContent = total > 0 ? `${completed}/${total}` : '';
+        progressFillEl.style.width = `${Math.round(ratio * 100)}%`;
+    }
 }
 
 function setBatchExportStatus(message = '', tone = 'info', isBusy = _batchExportBusy) {
     _batchExportStatus = { message, tone };
     _batchExportBusy = Boolean(isBusy);
+    syncBatchExportControls();
+}
+
+function setBatchExportProgress(completed = 0, total = 0) {
+    _batchExportProgress = { completed, total };
     syncBatchExportControls();
 }
 
@@ -927,6 +945,12 @@ function renderDashboard() {
                         <button class="btn btn-secondary btn-sm" id="exportSelectedBtn" onclick="exportSelectedTags()" title="Export selected labels in selected format">Export Selected (${selectedCount})</button>
                     </div>
                     <div id="batchExportStatus" class="batch-export-status batch-export-status-dock" aria-live="polite"></div>
+                    <div id="batchExportProgress" class="batch-export-progress" aria-hidden="true">
+                        <span id="batchExportProgressLabel" class="batch-export-progress-label"></span>
+                        <span class="batch-export-progress-track">
+                            <span id="batchExportProgressFill" class="batch-export-progress-fill"></span>
+                        </span>
+                    </div>
                 </div>
             `;
 
@@ -2254,7 +2278,17 @@ async function request3MFBlob(svgString, size, styleVal, labelShapeVal = 'classi
         const err = await response.text();
         throw new Error(err);
     }
-    return await response.blob();
+    const blob = await response.blob();
+    if (!blob || blob.size < 4) {
+        throw new Error('Server returned an empty or invalid 3MF file');
+    }
+
+    const sig = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+    const isZipSignature = sig[0] === 0x50 && sig[1] === 0x4B;
+    if (!isZipSignature) {
+        throw new Error('Server returned an invalid 3MF archive payload');
+    }
+    return blob;
 }
 
 async function buildSTEPBlobWithFallback(tagData, size, styleVal, preferredMode) {
@@ -2280,9 +2314,9 @@ async function buildSTEPBlobWithFallback(tagData, size, styleVal, preferredMode)
 }
 
 async function build3MFBlobWithFallback(tagData, size, styleVal, preferredMode) {
-    const attempts = preferredMode === 'vector'
-        ? ['vector', 'compat']
-        : ['compat', 'vector'];
+    // 3MF is more reliable with contour/compat geometry first.
+    // Keep vector as fallback to preserve edge-case compatibility.
+    const attempts = ['compat', 'vector'];
     const errors = [];
 
     for (const mode of attempts) {
@@ -2342,7 +2376,8 @@ function getBatchConcurrency(format) {
     if (format === 'svg') {
         return Math.max(2, Math.min(8, hw));
     }
-    return Math.max(2, Math.min(3, Math.floor(hw / 2) || 2));
+    // Keep 3MF/STEP parallelism moderate to avoid starving the local server.
+    return Math.max(2, Math.min(4, Math.floor(hw / 2) || 2));
 }
 
 function buildBatchFileName(tag, index, format) {
@@ -2366,6 +2401,7 @@ async function runParallelBatchExport(tags, format, styleVal) {
             const blob = await getTagBlobForFormat(tag, format, styleVal);
             results[i] = { filename: buildBatchFileName(tag, i, format), blob };
             completed += 1;
+            setBatchExportProgress(completed, total);
             setBatchExportStatus(`Exporting ${format.toUpperCase()} files... (${completed}/${total})`, 'info', true);
         }
     };
@@ -2393,12 +2429,23 @@ async function exportTagSubset(tags, scopeLabel) {
     const styleVal = 'flush';
 
     try {
+        setBatchExportProgress(0, tags.length);
+        setBatchExportStatus(`Preparing batch ${format.toUpperCase()} export...`, 'info', true);
+        const results = await runParallelBatchExport(tags, format, styleVal);
+
+        if (results.length === 1) {
+            const [single] = results;
+            triggerBlobDownload(single.blob, single.filename);
+            setBatchExportStatus(`Export ready: ${single.filename}`, 'success', false);
+            setTimeout(() => {
+                if (!_batchExportBusy) setBatchExportStatus('', 'info', false);
+            }, 3000);
+            return;
+        }
+
         if (typeof JSZip === 'undefined') {
             throw new Error('JSZip is not loaded. Please ensure the JSZip library is included in index.html.');
         }
-
-        setBatchExportStatus(`Preparing batch ${format.toUpperCase()} export...`, 'info', true);
-        const results = await runParallelBatchExport(tags, format, styleVal);
 
         setBatchExportStatus('Creating ZIP archive...', 'info', true);
         const zip = new JSZip();
@@ -2411,7 +2458,10 @@ async function exportTagSubset(tags, scopeLabel) {
         triggerBlobDownload(zipBlob, `infinitygrid_${format}_${suffix}_labels.zip`);
         setBatchExportStatus(`Batch export ready: ${results.length} files (${format.toUpperCase()}).`, 'success', false);
         setTimeout(() => {
-            if (!_batchExportBusy) setBatchExportStatus('', 'info', false);
+            if (!_batchExportBusy) {
+                setBatchExportStatus('', 'info', false);
+                setBatchExportProgress(0, 0);
+            }
         }, 3000);
     } catch (err) {
         console.error('Batch export failed:', err);
@@ -2422,6 +2472,7 @@ async function exportTagSubset(tags, scopeLabel) {
         alert(msg);
     } finally {
         if (_batchExportBusy) setBatchExportStatus(_batchExportStatus.message, _batchExportStatus.tone, false);
+        if (!_batchExportBusy) setBatchExportProgress(0, 0);
         syncBatchExportControls();
     }
 }

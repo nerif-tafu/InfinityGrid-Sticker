@@ -1,4 +1,5 @@
 import json
+import asyncio
 import os
 import tempfile
 import zipfile
@@ -18,6 +19,8 @@ BASE_DIR = Path(__file__).parent.resolve()
 ICONS_FOLDER = BASE_DIR / "Icons_SVG"
 ICON_TAGS_FILE = ICONS_FOLDER / "icon_tags.json"
 TMP_DIR = Path(os.environ.get("TMPDIR", "/tmp"))
+MAX_PARALLEL_EXPORT_JOBS = max(1, int(os.environ.get("MAX_PARALLEL_EXPORT_JOBS", "3")))
+EXPORT_JOB_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL_EXPORT_JOBS)
 
 # Ensure font files under /assets are served with correct MIME types.
 mimetypes.add_type("font/woff2", ".woff2")
@@ -28,6 +31,10 @@ app = FastAPI(title="InfinityGrid Sticker Designer API")
 THREEMF_CORE_NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
 THREEMF_MATERIAL_NS = "http://schemas.microsoft.com/3dmanufacturing/material/2015/02"
 BAMBU_NS = "http://schemas.bambulab.com/package/2021"
+
+async def run_export_worker(worker, *args):
+    async with EXPORT_JOB_SEMAPHORE:
+        await asyncio.to_thread(worker, *args)
 
 @app.middleware("http")
 async def disable_icon_cache(request: Request, call_next):
@@ -167,7 +174,16 @@ def _build_label_parts_from_svg(svg_path: Path, w, h, sty, label_shape="classic"
         if carve_pocket:
             cutter_part = build_svg_part(base_thickness - pocket_depth, pocket_depth)
             base.part -= cutter_part
-        content_part = build_svg_part(base_thickness - inlay_depth, inlay_depth)
+            content_part = build_svg_part(base_thickness - inlay_depth, inlay_depth)
+        else:
+            # In fallback mode, keep content visible on the top face while
+            # avoiding perfectly coplanar overlap with the base.
+            z_bias = 0.01
+            top_lift = 0.005
+            content_part = build_svg_part(
+                base_thickness - inlay_depth - z_bias,
+                inlay_depth + z_bias + top_lift
+            )
     else:
         # Raised: preserve 0.2 mm visible height above base, but when pocket
         # carving is enabled, sink a small anchor into the base pocket to avoid
@@ -184,7 +200,11 @@ def _build_label_parts_from_svg(svg_path: Path, w, h, sty, label_shape="classic"
                 raised_height + anchor_depth
             )
         else:
-            content_part = build_svg_part(base_thickness, raised_height)
+            # Add a tiny anchor overlap in fallback mode to prevent coplanar seams.
+            content_part = build_svg_part(
+                base_thickness - anchor_depth,
+                raised_height + anchor_depth
+            )
 
     _set_shape_metadata(
         content_part,
@@ -558,9 +578,21 @@ def build_step_worker(svg_text, w, h, sty, label_shape, queue):
             svg_path = temp_dir_path / "label_content.svg"
             with open(svg_path, "w", encoding="utf-8") as f:
                 f.write(svg_text)
-            base_part, content_part = _build_label_parts_from_svg(svg_path, w, h, sty, label_shape)
-            base_solids = base_part.solids()
-            content_solids = content_part.solids()
+            try:
+                base_part, content_part = _build_label_parts_from_svg(
+                    svg_path, w, h, sty, label_shape, carve_pocket=True
+                )
+            except Exception as carved_err:
+                print(f"Warning: STEP carved geometry failed, retrying without pocket carve: {carved_err}")
+                base_part, content_part = _build_label_parts_from_svg(
+                    svg_path, w, h, sty, label_shape, carve_pocket=False
+                )
+            base_solids = list(base_part.solids())
+            content_solids = list(content_part.solids())
+            if len(base_solids) == 0:
+                raise ValueError("STEP export generated no base geometry")
+            if len(content_solids) == 0:
+                raise ValueError("STEP export generated no label content geometry")
 
             my_assembly = Compound(
                 label="InfinityGrid_Label",
@@ -595,22 +627,48 @@ def build_3mf_worker(svg_text, w, h, sty, label_shape, queue):
             svg_path = temp_dir_path / "label_content.svg"
             with open(svg_path, "w", encoding="utf-8") as f:
                 f.write(svg_text)
-
-            base_part, content_part = _build_label_parts_from_svg(svg_path, w, h, sty, label_shape)
-            mesh = Mesher()
-            _add_part_to_mesher(mesh, base_part)
-            _add_part_to_mesher(mesh, content_part)
-
             three_mf_path = temp_dir_path / "multicolor_label.3mf"
-            mesh.write(three_mf_path)
-            _apply_3mf_materials(
-                three_mf_path,
-                base_item_count=len(base_part.solids()),
-                content_item_count=len(content_part.solids())
-            )
+            attempt_errors = []
 
-            with open(three_mf_path, "rb") as f:
-                queue.put(("ok", f.read()))
+            for carve_pocket in (True, False):
+                try:
+                    base_part, content_part = _build_label_parts_from_svg(
+                        svg_path, w, h, sty, label_shape, carve_pocket=carve_pocket
+                    )
+                    base_solids = list(base_part.solids())
+                    content_solids = list(content_part.solids())
+                    if len(base_solids) == 0:
+                        raise ValueError("3MF export generated no base geometry")
+                    if len(content_solids) == 0:
+                        raise ValueError("3MF export generated no label content geometry")
+
+                    mesh = Mesher()
+                    _add_part_to_mesher(mesh, base_part)
+                    _add_part_to_mesher(mesh, content_part)
+                    mesh.write(three_mf_path)
+                    _apply_3mf_materials(
+                        three_mf_path,
+                        base_item_count=len(base_solids),
+                        content_item_count=len(content_solids)
+                    )
+
+                    # Validate archive integrity before returning a "success" payload.
+                    with zipfile.ZipFile(three_mf_path, "r") as zf:
+                        if zf.testzip() is not None:
+                            raise ValueError("3MF archive failed integrity test")
+                        has_model = any(name.lower().endswith(".model") for name in zf.namelist())
+                        if not has_model:
+                            raise ValueError("3MF archive missing .model entry")
+
+                    with open(three_mf_path, "rb") as f:
+                        queue.put(("ok", f.read()))
+                    return
+                except Exception as attempt_err:
+                    mode_label = "carved" if carve_pocket else "no-pocket"
+                    attempt_errors.append(f"{mode_label}: {attempt_err}")
+                    print(f"Warning: 3MF {mode_label} attempt failed: {attempt_err}")
+
+            raise ValueError(f"3MF export failed for all build modes. {' | '.join(attempt_errors)}")
     except Exception as e:
         queue.put(("err", str(e)))
 
@@ -758,7 +816,7 @@ async def export_step_endpoint(
                 self.items.append(value)
 
         q = _Q()
-        build_step_worker(svg_content, width, height, style, label_shape, q)
+        await run_export_worker(build_step_worker, svg_content, width, height, style, label_shape, q)
         if not q.items:
             raise HTTPException(status_code=500, detail="STEP export failed without details")
         status, payload = q.items[0]
@@ -806,7 +864,7 @@ async def export_3mf_endpoint(
                 self.items.append(value)
 
         q = _Q()
-        build_3mf_worker(svg_content, width, height, style, label_shape, q)
+        await run_export_worker(build_3mf_worker, svg_content, width, height, style, label_shape, q)
         if not q.items:
             raise HTTPException(status_code=500, detail="3MF export failed without details")
 
@@ -849,7 +907,7 @@ async def preview_stl_endpoint(
                 self.items.append(value)
 
         q = _Q()
-        build_stl_preview_worker(svg_content, width, height, style, label_shape, q)
+        await run_export_worker(build_stl_preview_worker, svg_content, width, height, style, label_shape, q)
         if not q.items:
             raise HTTPException(status_code=500, detail="STL preview failed without details")
 

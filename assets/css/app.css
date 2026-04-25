@@ -389,6 +389,43 @@ body.modal-scroll-lock {
     min-height: 1rem;
 }
 
+.batch-export-progress {
+    max-width: 1400px;
+    margin: 0.25rem auto 0;
+    display: none;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.batch-export-progress.visible {
+    display: flex;
+}
+
+.batch-export-progress-label {
+    flex: 0 0 auto;
+    min-width: 3rem;
+    text-align: right;
+}
+
+.batch-export-progress-track {
+    flex: 1 1 auto;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.2);
+    overflow: hidden;
+}
+
+.batch-export-progress-fill {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(225, 29, 72, 0.85), rgba(244, 63, 94, 0.95));
+    transition: width 0.18s ease;
+}
+
 .dashboard-top-dock .batch-export-controls {
     flex: 0 0 auto;
     min-width: auto;
