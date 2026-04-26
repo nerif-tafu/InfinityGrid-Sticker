@@ -16,6 +16,7 @@
     <main class="dashboard" id="dashboard">
         <!-- Tags will be rendered here -->
     </main>
+    <div id="appToast" class="app-toast" role="status" aria-live="polite"></div>
 
     <!-- Editor Modal -->
     <div class="modal-overlay" id="editorModal" onclick="if (event.target === this) closeEditor()">
@@ -76,6 +77,8 @@
                 <div class="modal-actions modal-primary-actions">
                     <button class="btn btn-secondary" onclick="closeEditor()">Cancel</button>
                     <button class="btn btn-primary" onclick="saveTag()">Save</button>
+                    <button class="btn btn-primary btn-add-another" onclick="saveAndDuplicate()"
+                        title="Save and duplicate current tag into a new draft">Save + Duplicate</button>
                     <button class="btn btn-primary btn-add-another" onclick="saveAndNew()"
                         title="Save and create new tag">Save + New</button>
                 </div>

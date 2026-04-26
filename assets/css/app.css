@@ -395,6 +395,39 @@ body.modal-scroll-lock {
     display: none;
 }
 
+.app-toast {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 2500;
+    max-width: min(460px, calc(100vw - 2rem));
+    padding: 0.55rem 0.8rem;
+    border-radius: 0.6rem;
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    background: rgba(15, 23, 42, 0.94);
+    color: var(--text-primary);
+    font-size: 0.84rem;
+    opacity: 0;
+    transform: translateY(6px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.app-toast.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.app-toast.is-success {
+    border-color: rgba(16, 185, 129, 0.45);
+    color: #86efac;
+}
+
+.app-toast.is-error {
+    border-color: rgba(251, 113, 133, 0.45);
+    color: #fda4af;
+}
+
 .batch-export-progress {
     max-width: 1400px;
     margin: 0.25rem auto 0;

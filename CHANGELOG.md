@@ -6,6 +6,11 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-25
+### Added
+- `Save + Duplicate` action in the tag editor to save and continue as a new prefilled tag draft.
+- In-app save success toast shown after `Save`, `Save + Duplicate`, and `Save + New`.
+
 ## [1.4.0] - 2026-04-25
 ### Added
 - New `2 Lines (column)` text layout in Edit Tag, rendering two text columns side-by-side instead of stacked rows.

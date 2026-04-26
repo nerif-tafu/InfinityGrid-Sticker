@@ -228,6 +228,7 @@ let _jsonExportFilename = '';
 let _zoneEditSnapshot = null;
 let _zoneEditDirty = false;
 let _singleExportBusy = false;
+let _appToastTimer = 0;
 let _batchExportBusy = false;
 let _batchExportStatus = { message: '', tone: 'info' };
 let _batchExportProgress = { completed: 0, total: 0 };
@@ -702,6 +703,21 @@ function setSingleExportStatus(message = '', tone = 'info') {
     statusEl.classList.toggle('visible', Boolean(message));
     statusEl.classList.toggle('is-error', tone === 'error');
     statusEl.classList.toggle('is-success', tone === 'success');
+}
+
+function showAppToast(message = '', tone = 'success', durationMs = 1800) {
+    const toastEl = document.getElementById('appToast');
+    if (!toastEl) return;
+    clearTimeout(_appToastTimer);
+    toastEl.textContent = message;
+    toastEl.classList.toggle('visible', Boolean(message));
+    toastEl.classList.toggle('is-error', tone === 'error');
+    toastEl.classList.toggle('is-success', tone === 'success');
+    if (!message) return;
+    _appToastTimer = setTimeout(() => {
+        toastEl.classList.remove('visible', 'is-error', 'is-success');
+        toastEl.textContent = '';
+    }, Math.max(800, Number(durationMs) || 1800));
 }
 
 function setSingleExportBusyState(isBusy, message = '') {
@@ -2025,6 +2041,7 @@ async function saveTag(closeAfterSave = true) {
 
     saveToStorage();
     renderDashboard();
+    showAppToast(`Saved "${name}".`, 'success');
     if (closeAfterSave) {
         closeEditor();
     }
@@ -2036,6 +2053,15 @@ async function saveAndNew() {
     if (!saved) return;
 
     // Stay in the form and keep the current content as a template for the next tag
+    state.editingId = null;
+    document.getElementById('modalTitle').textContent = 'Create New Tag';
+}
+
+async function saveAndDuplicate() {
+    const saved = await saveTag(false);
+    if (!saved) return;
+
+    // Keep all current values but switch to a brand-new draft id.
     state.editingId = null;
     document.getElementById('modalTitle').textContent = 'Create New Tag';
 }
