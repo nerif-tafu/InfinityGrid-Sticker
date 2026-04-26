@@ -17,7 +17,8 @@ const CONFIG = {
     rightLayouts: {
         '0': { label: 'None', hint: 'No text', iconKey: 'none', textCount: 0 },
         '1': { label: '1 Line', hint: 'Single text line', iconKey: 'line-1', textCount: 1 },
-        '2': { label: '2 Lines', hint: 'Two text lines', iconKey: 'line-2', textCount: 2 }
+        '2': { label: '2 Lines', hint: 'Two text lines', iconKey: 'line-2', textCount: 2 },
+        '2c': { label: '2 Lines (column)', hint: 'Two side-by-side columns', iconKey: 'line-2-col', textCount: 2, arrangement: 'columns' }
     },
     iconsBasePath: 'icons/' // Base path for icon files (served from Icons_SVG)
 };
@@ -1563,6 +1564,18 @@ function computeZonePositions() {
             const textWidthPct = 100 - textStartPct;
             if (rightConfig.textCount === 1) {
                 zones.push({ type: 'text', index: 0, left: textStartPct, top: 0, width: textWidthPct, height: 100 });
+            } else if (rightConfig.arrangement === 'columns') {
+                const halfWidth = textWidthPct / rightConfig.textCount;
+                for (let i = 0; i < rightConfig.textCount; i++) {
+                    zones.push({
+                        type: 'text',
+                        index: i,
+                        left: textStartPct + (i * halfWidth),
+                        top: 0,
+                        width: halfWidth,
+                        height: 100
+                    });
+                }
             } else {
                 for (let i = 0; i < rightConfig.textCount; i++)
                     zones.push({ type: 'text', index: i, left: textStartPct, top: i * 50, width: textWidthPct, height: 50 });
@@ -2750,6 +2763,24 @@ async function generateSVGString(tagData, forceBlack = false) {
                         svgContent += createTextSVGElement(text, centerTextX, height / 2, fontSize, 'middle', contentColor);
                     } else {
                         const visualTextX = getVisualTextStartX(text, textX, fontSize);
+                        svgContent += createTextSVGElement(text, visualTextX, height / 2, fontSize, 'start', contentColor);
+                    }
+                }
+            } else if (rightConfig.arrangement === 'columns') {
+                // Two columns
+                const columnGap = gapBetween;
+                const columnWidth = (availableTextWidth - columnGap) / 2;
+                const textHeight = availableHeight * textScale;
+                for (let i = 0; i < 2; i++) {
+                    const text = tagData.texts[i] || '';
+                    if (!text) continue;
+                    const columnX = textX + (i * (columnWidth + columnGap));
+                    const fontSize = calculateFontSize(text, columnWidth, textHeight);
+                    if (textAlign === 'center') {
+                        const centerTextX = columnX + (columnWidth / 2);
+                        svgContent += createTextSVGElement(text, centerTextX, height / 2, fontSize, 'middle', contentColor);
+                    } else {
+                        const visualTextX = getVisualTextStartX(text, columnX, fontSize);
                         svgContent += createTextSVGElement(text, visualTextX, height / 2, fontSize, 'start', contentColor);
                     }
                 }
