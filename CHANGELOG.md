@@ -6,6 +6,14 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-09
+### Added
+- **JST SM Male** and **JST SM Female** connector icons under Electrical → Connectors.
+- Optional `displayName` in `icon_tags.json` for custom icon picker labels.
+
+### Fixed
+- JST SM Male icon now renders as a solid black filled silhouette instead of a broken or hollow outline.
+
 ## [1.7.0] - 2026-07-09
 ### Changed
 - `Save + New` now resets the editor to blank defaults after saving.

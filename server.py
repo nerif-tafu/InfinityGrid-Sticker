@@ -831,7 +831,8 @@ def get_icon_tags():
         tags.append({
             "mainCategory": str(row.get("mainCategory", "uncategorized")).lower(),
             "subCategory": str(row.get("subCategory", "general")).lower(),
-            "fileName": file_name
+            "fileName": file_name,
+            "displayName": str(row.get("displayName", "")).strip()
         })
     return tags
 

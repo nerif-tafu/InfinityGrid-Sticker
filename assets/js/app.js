@@ -141,7 +141,9 @@ function parseIconFile(filename, tagsByFile = ICONS_TAGS_BY_FILE) {
         filename,
         svg: filename,
         name,
-        displayName: formatDisplayName(name || subcategoryToken),
+        displayName: metadata && metadata.displayName
+            ? String(metadata.displayName)
+            : formatDisplayName(name || subcategoryToken),
         categoryToken,
         categoryLabel: formatDisplayName(categoryToken),
         subcategoryToken,
@@ -332,7 +334,8 @@ async function fetchIconsFromBackend({ onlyIfChanged = false, preservePickerStat
             if (!fileName) return;
             nextTagsMap[fileName] = {
                 mainCategory: String(entry.mainCategory || 'uncategorized').toLowerCase(),
-                subCategory: String(entry.subCategory || 'general').toLowerCase()
+                subCategory: String(entry.subCategory || 'general').toLowerCase(),
+                displayName: String(entry.displayName || '').trim()
             };
         });
         const nextTagsToken = JSON.stringify(Object.keys(nextTagsMap).sort().map(fileName => ({

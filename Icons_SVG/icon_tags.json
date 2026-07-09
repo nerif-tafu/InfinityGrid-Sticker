@@ -178,6 +178,18 @@
     {
       "mainCategory": "electrical",
       "subCategory": "connectors",
+      "fileName": "jst-sm-female.svg",
+      "displayName": "JST SM Female"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
+      "fileName": "jst-sm-male.svg",
+      "displayName": "JST SM Male"
+    },
+    {
+      "mainCategory": "electrical",
+      "subCategory": "connectors",
       "fileName": "ring.svg"
     },
     {
