@@ -1790,6 +1790,33 @@ function cancelZoneEdit() {
     renderZoneEditor();
 }
 
+function resetEditorForNewTag() {
+    state.editingId = null;
+    state.selectedZone = null;
+    state.currentSize = '1u';
+    state.leftLayout = '1';
+    state.rightLayout = '1';
+    state.icons = [null, null];
+    state.texts = ['', ''];
+    state.textAlign = 'center';
+    state.labelShape = 'classic';
+    state.iconSize = 100;
+    state.textSize = 100;
+    clearIconPickerState();
+    clearZoneEditSession();
+    closeSlotEditorModal();
+    document.getElementById('modalTitle').textContent = 'Create New Tag';
+    const exportFormatSelect = document.getElementById('exportFormatSelect');
+    if (exportFormatSelect) exportFormatSelect.value = '3mf';
+    const exportStyleSelect = document.getElementById('exportStyleSelect');
+    if (exportStyleSelect) exportStyleSelect.value = 'flush';
+    renderSizeSelector();
+    renderLayoutSelectors();
+    renderLabelShapeSelector();
+    renderZoneEditor();
+    renderCanvas();
+}
+
 function openEditor(tagId = null) {
     state.editingId = tagId;
     state.selectedZone = null;
@@ -1815,28 +1842,16 @@ function openEditor(tagId = null) {
             document.getElementById('modalTitle').textContent = 'Edit Tag';
         }
     } else {
-        // New tag defaults
-        state.currentSize = '1u';
-        state.leftLayout = '1';
-        state.rightLayout = '1';
-        state.icons = [null, null];
-        state.texts = ['', ''];
-        state.textAlign = 'center';
-        state.labelShape = 'classic';
-        state.iconSize = 100;
-        state.textSize = 100;
-        document.getElementById('modalTitle').textContent = 'Create New Tag';
-        const exportFormatSelect = document.getElementById('exportFormatSelect');
-        if (exportFormatSelect) exportFormatSelect.value = '3mf';
-        const exportStyleSelect = document.getElementById('exportStyleSelect');
-        if (exportStyleSelect) exportStyleSelect.value = 'flush';
+        resetEditorForNewTag();
     }
 
-    renderSizeSelector();
-    renderLayoutSelectors();
-    renderLabelShapeSelector();
-    renderZoneEditor();
-    renderCanvas();
+    if (tagId) {
+        renderSizeSelector();
+        renderLayoutSelectors();
+        renderLabelShapeSelector();
+        renderZoneEditor();
+        renderCanvas();
+    }
 
     document.getElementById('editorModal').classList.add('active');
     syncPageScrollLock();
@@ -2103,19 +2118,22 @@ async function saveTag(closeAfterSave = true) {
 async function saveAndNew() {
     const saved = await saveTag(false);
     if (!saved) return;
-
-    // Stay in the form and keep the current content as a template for the next tag
-    state.editingId = null;
-    document.getElementById('modalTitle').textContent = 'Create New Tag';
+    resetEditorForNewTag();
 }
 
 async function saveAndDuplicate() {
     const saved = await saveTag(false);
     if (!saved) return;
 
-    // Keep all current values but switch to a brand-new draft id.
+    // Keep all current field values, but start a brand-new unsaved draft.
     state.editingId = null;
+    state.selectedZone = null;
+    clearIconPickerState();
+    clearZoneEditSession();
+    closeSlotEditorModal();
     document.getElementById('modalTitle').textContent = 'Create New Tag';
+    renderZoneEditor();
+    renderCanvas();
 }
 
 function sanitizeFileName(name) {

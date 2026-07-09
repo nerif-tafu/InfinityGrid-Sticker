@@ -6,6 +6,11 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-09
+### Changed
+- `Save + New` now resets the editor to blank defaults after saving.
+- `Save + Duplicate` now keeps the saved label's values prefilled while starting a new unsaved draft.
+
 ## [1.6.0] - 2026-07-09
 ### Added
 - New `0.5 Unit (2 per 1u)` and `0.3 Unit (3 per 1u)` label sizes.
