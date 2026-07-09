@@ -475,6 +475,12 @@
     {
       "mainCategory": "mechanical",
       "subCategory": "general",
+      "fileName": "rod-end-bearing.svg",
+      "displayName": "Rod End Bearing"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
       "fileName": "spring.svg"
     },
     {

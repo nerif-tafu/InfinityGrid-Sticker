@@ -6,6 +6,10 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-09
+### Added
+- **Rod End Bearing** icon under Mechanical → General.
+
 ## [1.8.0] - 2026-07-09
 ### Added
 - **JST SM Male** and **JST SM Female** connector icons under Electrical → Connectors.
