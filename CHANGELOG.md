@@ -6,6 +6,11 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-09
+### Fixed
+- Simplified **bearing** icon to two rings with eight balls correctly placed in the raceway.
+- 3MF export no longer fails on labels that use the bearing icon.
+
 ## [1.11.0] - 2026-07-09
 ### Added
 - **Rod** icon under Mechanical → General.
