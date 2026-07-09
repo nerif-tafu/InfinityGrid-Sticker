@@ -6,6 +6,19 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-09
+### Added
+- New `0.5 Unit (2 per 1u)` and `0.3 Unit (3 per 1u)` label sizes.
+- Equal-width icon/text columns for `0.3u` labels.
+
+### Fixed
+- 3MF/STEP export no longer extrudes the full label background as solid content geometry.
+- Export now includes text labels by preferring contour geometry for tags with text.
+- Exported text now meshes as solid fills instead of hollow outline glyphs.
+
+### Changed
+- `label_generator.scad` size mappings aligned with web export dimensions for `0.3u`, `0.5u`, `2u`, and `3u`.
+
 ## [1.5.0] - 2026-04-25
 ### Added
 - `Save + Duplicate` action in the tag editor to save and continue as a new prefilled tag draft.

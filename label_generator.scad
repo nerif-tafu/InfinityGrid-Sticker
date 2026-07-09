@@ -8,7 +8,7 @@
 svg_file = "example.svg"; // [.svg file]
 
 // Label size units (must match SVG export)
-Y_units = 1; // [1, 2, 3]
+Y_units = 1; // [0.3, 0.5, 1, 2, 3]
 
 // Label base color
 Label_color = "#000000"; // color
@@ -41,15 +41,19 @@ $fa = 5;
 
 // Calculate label length based on units
 function get_length(units) =
+    (units == 0.3) ? 12.8 :
+    (units == 0.5) ? 18.55 :
     (units == 1) ? 35.8 :
     (units == 2) ? 77.8 :
     (units == 3) ? 119.8 : 35.8;
 
 // SVG dimensions (must match export settings)
 function get_svg_width(units) =
+    (units == 0.3) ? 11.5 :
+    (units == 0.5) ? 17.25 :
     (units == 1) ? 34.5 :
-    (units == 2) ? 69.0 :
-    (units == 3) ? 103.5 : 34.5;
+    (units == 2) ? 76.5 :
+    (units == 3) ? 118.5 : 34.5;
 
 svg_height = 10.5;
 

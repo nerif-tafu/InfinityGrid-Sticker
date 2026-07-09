@@ -3,6 +3,8 @@
 // ============================================
 const CONFIG = {
     baseSizes: {
+        '0.3u': { height: 10.5, width: 11.5, label: '0.3 Unit (3 per 1u)' },
+        '0.5u': { height: 10.5, width: 17.25, label: '0.5 Unit (2 per 1u)' },
         '1u': { height: 10.5, width: 34.5, label: '1 Unit' },
         '2u': { height: 10.5, width: 76.5, label: '2 Units' },
         '3u': { height: 10.5, width: 118.5, label: '3 Units' }
@@ -1523,6 +1525,19 @@ function buildTagData() {
 }
 
 // Compute clickable zone positions (percentages) from layout geometry
+function getLayoutSpacing(sizeKey) {
+    if (sizeKey === '0.3u') {
+        return { margin: 0.3, gapIconText: 0.15, gapBetween: 0.25 };
+    }
+    return { margin: 0.6, gapIconText: 0.25, gapBetween: 0.6 };
+}
+
+function usesEqualIconTextColumns(sizeKey, leftConfig, rightConfig) {
+    if (sizeKey !== '0.3u') return false;
+    if (leftConfig.iconCount === 0 || rightConfig.textCount === 0) return false;
+    return leftConfig.arrangement !== 'top';
+}
+
 function computeZonePositions() {
     const size = CONFIG.baseSizes[state.currentSize];
     const W = size.width, H = size.height;
@@ -1530,11 +1545,12 @@ function computeZonePositions() {
     const rightConfig = CONFIG.rightLayouts[state.rightLayout];
     const iconScale = (state.iconSize || 100) / 100;
 
-    const margin = 0.6, gapIconText = 0.25, gapBetween = 0.6;
+    const { margin, gapIconText, gapBetween } = getLayoutSpacing(state.currentSize);
     const availH = H - 2 * margin;
     const hasIcons = leftConfig.iconCount > 0;
     const hasText = rightConfig.textCount > 0;
     const isTopLayout = leftConfig.arrangement === 'top' && hasText;
+    const equalColumns = usesEqualIconTextColumns(state.currentSize, leftConfig, rightConfig);
     const zones = [];
 
     if (isTopLayout) {
@@ -1550,6 +1566,42 @@ function computeZonePositions() {
         }
         if (hasText) {
             zones.push({ type: 'text', index: 0, left: 0, top: 50, width: 100, height: 50 });
+        }
+    } else if (equalColumns) {
+        const contentWidth = W - (2 * margin);
+        const columnWidth = (contentWidth - gapIconText) / 2;
+        const leftPct = margin / W * 100;
+        const columnPct = columnWidth / W * 100;
+        const gapPct = gapIconText / W * 100;
+
+        if (hasIcons) {
+            if (leftConfig.arrangement === 'stacked') {
+                for (let i = 0; i < leftConfig.iconCount; i++) {
+                    zones.push({ type: 'icon', index: i, left: leftPct, top: i * 50, width: columnPct, height: 50 });
+                }
+            } else if (leftConfig.iconCount === 1) {
+                zones.push({ type: 'icon', index: 0, left: leftPct, top: 0, width: columnPct, height: 100 });
+            } else {
+                const iconSlice = columnPct / leftConfig.iconCount;
+                for (let i = 0; i < leftConfig.iconCount; i++) {
+                    zones.push({ type: 'icon', index: i, left: leftPct + (i * iconSlice), top: 0, width: iconSlice, height: 100 });
+                }
+            }
+        }
+        if (hasText) {
+            const textLeftPct = leftPct + columnPct + gapPct;
+            if (rightConfig.textCount === 1) {
+                zones.push({ type: 'text', index: 0, left: textLeftPct, top: 0, width: columnPct, height: 100 });
+            } else if (rightConfig.arrangement === 'columns') {
+                const textSlice = columnPct / rightConfig.textCount;
+                for (let i = 0; i < rightConfig.textCount; i++) {
+                    zones.push({ type: 'text', index: i, left: textLeftPct + (i * textSlice), top: 0, width: textSlice, height: 100 });
+                }
+            } else {
+                for (let i = 0; i < rightConfig.textCount; i++) {
+                    zones.push({ type: 'text', index: i, left: textLeftPct, top: i * 50, width: columnPct, height: 50 });
+                }
+            }
         }
     } else {
         // Horizontal layout — compute icon area width
@@ -2152,6 +2204,36 @@ async function downloadCurrentExport() {
 // CONTOUR EXTRACTION FOR STEP EXPORT
 // ============================================
 
+let _exportFontStyleBlock = null;
+
+function tagHasTextContent(tagData) {
+    const rightConfig = CONFIG.rightLayouts[tagData.rightLayout];
+    if (!rightConfig || rightConfig.textCount <= 0) return false;
+    for (let i = 0; i < rightConfig.textCount; i++) {
+        const value = tagData.texts && tagData.texts[i];
+        if (value && String(value).trim()) return true;
+    }
+    return false;
+}
+
+function getExportGeometryAttempts(tagData, preferredMode) {
+    if (tagHasTextContent(tagData)) {
+        return ['compat', 'vector'];
+    }
+    if (preferredMode === 'vector') {
+        return ['vector', 'compat'];
+    }
+    return ['compat', 'vector'];
+}
+
+async function getExportSvgStyleBlock() {
+    if (_exportFontStyleBlock) return _exportFontStyleBlock;
+    // Use a solid font for export rasterization. StickerText/Bungee Outline are
+    // outline glyphs and mesh as hollow rings instead of filled label text.
+    _exportFontStyleBlock = 'text { font-family: "Arial Black", Arial, sans-serif; font-weight: 900; }';
+    return _exportFontStyleBlock;
+}
+
 async function svgToImageData(svgString, widthMM, heightMM, pxPerMM) {
     return new Promise((resolve, reject) => {
         const widthPx = widthMM * pxPerMM;
@@ -2233,13 +2315,14 @@ function rasterRunsToRects(imageData) {
 }
 
 async function generateContourSVGString(tagData) {
+    await ensureTextFontLoaded(600);
     const contentSvgString = await generateSVGString(tagData, true);
     const size = CONFIG.baseSizes[tagData.size];
     const widthMM = size.width;
     const heightMM = size.height;
     // Raster density trade-off: high px/mm improves edges but explodes rectangle
     // count (slow client + server mesh; Lib3MF often rejects tiny facet meshes).
-    const pxPerMM = 18;
+    const pxPerMM = Math.max(18, Math.min(40, Math.ceil(360 / Math.max(widthMM, 1))));
 
     const imageData = await svgToImageData(contentSvgString, widthMM, heightMM, pxPerMM);
     const rects = rasterRunsToRects(imageData);
@@ -2334,9 +2417,7 @@ async function request3MFBlob(svgString, size, styleVal, labelShapeVal = 'classi
 }
 
 async function buildSTEPBlobWithFallback(tagData, size, styleVal, preferredMode) {
-    const attempts = preferredMode === 'vector'
-        ? ['vector', 'compat']
-        : ['compat', 'vector'];
+    const attempts = getExportGeometryAttempts(tagData, preferredMode);
     const errors = [];
 
     for (const mode of attempts) {
@@ -2358,9 +2439,7 @@ async function buildSTEPBlobWithFallback(tagData, size, styleVal, preferredMode)
 async function build3MFBlobWithFallback(tagData, size, styleVal, preferredMode) {
     // Vector: single SVG import (fast). Compat: raster rectangles — slow and often
     // fails Lib3MF "mesh is invalid" on dense geometry. Order follows geometry mode.
-    const attempts = preferredMode === 'vector'
-        ? ['vector', 'compat']
-        : ['compat', 'vector'];
+    const attempts = getExportGeometryAttempts(tagData, preferredMode);
     const errors = [];
 
     for (const mode of attempts) {
@@ -2667,7 +2746,9 @@ function deleteTag(tagId) {
 // ============================================
 
 async function generateSVGString(tagData, forceBlack = false) {
-    await ensureTextFontLoaded(120);
+    _svgExportTextMode = Boolean(forceBlack);
+    try {
+    await ensureTextFontLoaded(forceBlack ? 600 : 120);
 
     const size = CONFIG.baseSizes[tagData.size];
     const leftConfig = CONFIG.leftLayouts[tagData.leftLayout];
@@ -2681,9 +2762,7 @@ async function generateSVGString(tagData, forceBlack = false) {
     const height = size.height;
 
     // Spacing constants (in mm)
-    const margin = 0.6;
-    const gapIconText = 0.25;
-    const gapBetween = 0.6;
+    const { margin, gapIconText, gapBetween } = getLayoutSpacing(tagData.size);
 
     // Calculate available space
     const availableHeight = height - (2 * margin); // 9.3mm for single items
@@ -2691,13 +2770,18 @@ async function generateSVGString(tagData, forceBlack = false) {
     const textScale = (tagData.textSize != null ? tagData.textSize : 100) / 100;
     const textAlign = tagData.textAlign === 'left' ? 'left' : 'center';
 
-    // Start building SVG
-    let svgContent = `<rect x="0" y="0" width="${width}" height="${height}" fill="${bgColor}" />`;
+    // Preview SVG includes a background rect; export geometry must be content-only
+    // or the server extrudes the full label bounds as one solid content layer.
+    let svgContent = '';
+    if (!forceBlack) {
+        svgContent += `<rect x="0" y="0" width="${width}" height="${height}" fill="${bgColor}" />`;
+    }
     let currentX = margin;
 
     const hasIcons = leftConfig.iconCount > 0;
     const hasText = rightConfig.textCount > 0;
     const isTopLayout = leftConfig.arrangement === 'top' && hasText;
+    const equalColumns = usesEqualIconTextColumns(tagData.size, leftConfig, rightConfig);
 
     if (isTopLayout) {
         // Vertical layout: icons on top, text below (tight spacing)
@@ -2735,6 +2819,95 @@ async function generateSVGString(tagData, forceBlack = false) {
                     svgContent += createTextSVGElement(text, leftTextX, textY + itemHeight / 2, fontSize, 'start', contentColor);
                 } else {
                     svgContent += createTextSVGElement(text, width / 2, textY + itemHeight / 2, fontSize, 'middle', contentColor);
+                }
+            }
+        }
+    } else if (equalColumns) {
+        const contentWidth = width - (2 * margin);
+        const columnWidth = (contentWidth - gapIconText) / 2;
+        const iconColumnX = margin;
+        const textColumnX = margin + columnWidth + gapIconText;
+
+        if (hasIcons) {
+            if (leftConfig.arrangement === 'stacked') {
+                const iconBandHeight = (availableHeight - gapBetween) / 2;
+                const iconSize = Math.min(columnWidth, iconBandHeight) * iconScale;
+                let iconY = margin + (iconBandHeight - iconSize) / 2;
+
+                for (let i = 0; i < leftConfig.iconCount; i++) {
+                    const icon = tagData.icons[i];
+                    if (icon) {
+                        const iconX = iconColumnX + (columnWidth - iconSize) / 2;
+                        svgContent += await createIconSVGElement(icon.svg, iconX, iconY, iconSize, iconSize, contentColor);
+                    }
+                    iconY += iconBandHeight + gapBetween;
+                }
+            } else {
+                const iconSize = Math.min(columnWidth, availableHeight) * iconScale;
+                const iconY = margin + (availableHeight - iconSize) / 2;
+                let iconX = iconColumnX;
+
+                for (let i = 0; i < leftConfig.iconCount; i++) {
+                    const icon = tagData.icons[i];
+                    const slotWidth = columnWidth / leftConfig.iconCount;
+                    if (icon) {
+                        const centeredIconX = iconX + (slotWidth - iconSize) / 2;
+                        svgContent += await createIconSVGElement(icon.svg, centeredIconX, iconY, iconSize, iconSize, contentColor);
+                    }
+                    iconX += slotWidth;
+                }
+            }
+        }
+
+        if (hasText) {
+            const availableTextWidth = columnWidth;
+            const textX = textColumnX;
+
+            if (rightConfig.textCount === 1) {
+                const textHeight = availableHeight * textScale;
+                const text = tagData.texts[0] || '';
+                if (text) {
+                    const fontSize = calculateFontSize(text, availableTextWidth, textHeight);
+                    if (textAlign === 'center') {
+                        const centerTextX = textX + (availableTextWidth / 2);
+                        svgContent += createTextSVGElement(text, centerTextX, height / 2, fontSize, 'middle', contentColor);
+                    } else {
+                        const visualTextX = getVisualTextStartX(text, textX, fontSize);
+                        svgContent += createTextSVGElement(text, visualTextX, height / 2, fontSize, 'start', contentColor);
+                    }
+                }
+            } else if (rightConfig.arrangement === 'columns') {
+                const textColumnGap = gapBetween;
+                const textColumnWidth = (availableTextWidth - textColumnGap) / 2;
+                const textHeight = availableHeight * textScale;
+                for (let i = 0; i < 2; i++) {
+                    const text = tagData.texts[i] || '';
+                    if (!text) continue;
+                    const columnX = textX + (i * (textColumnWidth + textColumnGap));
+                    const fontSize = calculateFontSize(text, textColumnWidth, textHeight);
+                    if (textAlign === 'center') {
+                        const centerTextX = columnX + (textColumnWidth / 2);
+                        svgContent += createTextSVGElement(text, centerTextX, height / 2, fontSize, 'middle', contentColor);
+                    } else {
+                        const visualTextX = getVisualTextStartX(text, columnX, fontSize);
+                        svgContent += createTextSVGElement(text, visualTextX, height / 2, fontSize, 'start', contentColor);
+                    }
+                }
+            } else {
+                const lineHeight = (availableHeight - gapBetween) / 2 * textScale;
+                for (let i = 0; i < 2; i++) {
+                    const text = tagData.texts[i] || '';
+                    if (text) {
+                        const textY = margin + (i * (lineHeight + gapBetween)) + lineHeight / 2;
+                        const fontSize = calculateFontSize(text, availableTextWidth, lineHeight);
+                        if (textAlign === 'center') {
+                            const centerTextX = textX + (availableTextWidth / 2);
+                            svgContent += createTextSVGElement(text, centerTextX, textY, fontSize, 'middle', contentColor);
+                        } else {
+                            const visualTextX = getVisualTextStartX(text, textX, fontSize);
+                            svgContent += createTextSVGElement(text, visualTextX, textY, fontSize, 'start', contentColor);
+                        }
+                    }
                 }
             }
         }
@@ -2832,16 +3005,23 @@ async function generateSVGString(tagData, forceBlack = false) {
     }
 
     // Create final SVG
+    const styleBlock = forceBlack
+        ? await getExportSvgStyleBlock()
+        : 'text { font-family: "StickerText", "Bungee Outline", "Arial Black", Arial, sans-serif; font-weight: 400; }';
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      width="${width}mm"
      height="${height}mm"
      viewBox="0 0 ${width} ${height}">
   <style>
-    text { font-family: "StickerText", "Bungee Outline", "Arial Black", Arial, sans-serif; font-weight: 400; }
+    ${styleBlock}
   </style>
   ${svgContent}
 </svg>`;
+    } finally {
+        _svgExportTextMode = false;
+    }
 }
 
 async function exportTagSVG(tagData) {
@@ -3071,7 +3251,10 @@ async function createIconSVGElement(svgPath, x, y, w, h) {
 
 const TEXT_FONT_WEIGHT = 400;
 const TEXT_FONT_FAMILY = '"StickerText", "Bungee Outline", "Arial Black", Arial, sans-serif';
+const EXPORT_TEXT_FONT_WEIGHT = 900;
+const EXPORT_TEXT_FONT_FAMILY = '"Arial Black", Arial, sans-serif';
 const TEXT_FONT_LOAD_SPEC = '400 16px "StickerText"';
+const EXPORT_TEXT_FONT_LOAD_SPEC = '900 16px "Arial Black"';
 const SVG_TEXT_SCALE = 1.2;
 const TEXT_STROKE_RATIO = 0.04;
 const TEXT_FIT_WIDTH_RATIO = 0.96;
@@ -3079,14 +3262,31 @@ const TEXT_FIT_HEIGHT_CAP = 0.9;
 const _textMeasureCanvas = document.createElement('canvas');
 const _textMeasureCtx = _textMeasureCanvas.getContext('2d');
 let _textFontLoadPromise = null;
+let _exportTextFontLoadPromise = null;
+let _svgExportTextMode = false;
+
+function getActiveTextFontFamily() {
+    return _svgExportTextMode ? EXPORT_TEXT_FONT_FAMILY : TEXT_FONT_FAMILY;
+}
+
+function getActiveTextFontWeight() {
+    return _svgExportTextMode ? EXPORT_TEXT_FONT_WEIGHT : TEXT_FONT_WEIGHT;
+}
 
 async function ensureTextFontLoaded(maxWaitMs = 120) {
     if (!document.fonts || !document.fonts.load) return;
     if (!_textFontLoadPromise) {
         _textFontLoadPromise = document.fonts.load(TEXT_FONT_LOAD_SPEC).catch(() => { });
     }
+    if (!_exportTextFontLoadPromise) {
+        _exportTextFontLoadPromise = document.fonts.load(EXPORT_TEXT_FONT_LOAD_SPEC).catch(() => { });
+    }
+    const waits = [_textFontLoadPromise];
+    if (_svgExportTextMode) {
+        waits.push(_exportTextFontLoadPromise);
+    }
     await Promise.race([
-        _textFontLoadPromise,
+        Promise.all(waits),
         new Promise(resolve => setTimeout(resolve, maxWaitMs))
     ]);
 }
@@ -3096,7 +3296,7 @@ function getTextMetrics(text, fontSize) {
         return { width: 0, left: 0 };
     }
 
-    _textMeasureCtx.font = `${TEXT_FONT_WEIGHT} ${fontSize}px ${TEXT_FONT_FAMILY}`;
+    _textMeasureCtx.font = `${getActiveTextFontWeight()} ${fontSize}px ${getActiveTextFontFamily()}`;
     const metrics = _textMeasureCtx.measureText(text);
     const hasBoxMetrics = Number.isFinite(metrics.actualBoundingBoxLeft) && Number.isFinite(metrics.actualBoundingBoxRight);
 
@@ -3125,6 +3325,9 @@ function getVisualTextStartX(text, targetLeftX, fontSize) {
 
 function createTextSVGElement(text, x, y, fontSize, anchor) {
     const svgFontSize = fontSize * SVG_TEXT_SCALE;
+    if (_svgExportTextMode) {
+        return `<text x="${x}" y="${y}" font-size="${svgFontSize}" text-anchor="${anchor}" dominant-baseline="central" fill="black" stroke="none">${escapeXml(text)}</text>\n`;
+    }
     const strokeWidth = Math.max(0.04, svgFontSize * TEXT_STROKE_RATIO);
     return `<text x="${x}" y="${y}" font-size="${svgFontSize}" text-anchor="${anchor}" dominant-baseline="central" fill="black" stroke="black" stroke-width="${strokeWidth}" paint-order="stroke fill">${escapeXml(text)}</text>\n`;
 }
