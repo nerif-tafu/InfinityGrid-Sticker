@@ -6,6 +6,10 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-09
+### Added
+- **Rod** icon under Mechanical → General.
+
 ## [1.10.0] - 2026-07-09
 ### Fixed
 - Rod End Bearing icon now renders as a solid black filled silhouette instead of a thin outline ring.

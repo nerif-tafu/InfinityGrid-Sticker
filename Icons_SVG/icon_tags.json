@@ -481,6 +481,12 @@
     {
       "mainCategory": "mechanical",
       "subCategory": "general",
+      "fileName": "rod.svg",
+      "displayName": "Rod"
+    },
+    {
+      "mainCategory": "mechanical",
+      "subCategory": "general",
       "fileName": "spring.svg"
     },
     {
